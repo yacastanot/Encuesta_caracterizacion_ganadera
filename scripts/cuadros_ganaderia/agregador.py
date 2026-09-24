@@ -7,15 +7,36 @@ idéntica en los 3 programas de "Programas Carolina":
 2. Cruza (join COMPLETO, no inner) contra el catálogo DIVIPOLA de municipios,
    para que aparezcan todos los municipios aunque no tengan datos (quedan en 0,
    no se pierden filas).
-3. Reagrega el nivel municipal ya completo a nivel departamental, y lo cruza
+3. Redondea a entero el nivel municipal (ver "REDONDEO" abajo).
+4. Reagrega el nivel municipal YA REDONDEADO a nivel departamental, y lo cruza
    contra el catálogo completo de departamentos.
-4. Reagrega a nivel nacional (una sola fila, o una fila por categoría extra si
-   el cuadro desagrega por una variable adicional como `orientacionhato`).
-5. Apila nacional + departamental + municipal, en ese orden, y dentro de cada
+5. Reagrega a nivel nacional (una sola fila, o una fila por categoría extra si
+   el cuadro desagrega por una variable adicional como `orientacionhato`) -
+   también a partir del nivel municipal ya redondeado.
+6. Apila nacional + departamental + municipal, en ese orden, y dentro de cada
    departamento deja primero su fila de subtotal y luego sus municipios
    (equivalente al orden que produce SAS al ordenar por COD_DEPARTAMENTO /
    COD_MUNICIPIO, donde los valores missing del subtotal departamental ordenan
    primero).
+
+REDONDEO: los cuadros publicados muestran cantidades enteras (predios,
+ganaderos, animales), pero los pesos de calibración (`peso_ganadero`,
+`peso_predio_ganadero`, F_AJUSTA_BOVINOS/BUFALINOS, etc.) producen decimales.
+Si cada nivel territorial (Nacional/Departamento/Municipio) se redondeara por
+separado a partir de su propia agregación (como se hacía antes), el "Total
+Nacional" mostrado terminaba sin coincidir con la suma de los municipios que
+aparecen en la misma hoja (round(a)+round(b) != round(a+b) en general) -
+confirmado con datos reales: hasta 19 unidades de diferencia en columnas de
+Cuadro 3 (ganaderos). Por eso el redondeo se hace UNA sola vez, al nivel más
+fino (municipio), y Departamento/Nacional se calculan como suma de esos
+enteros ya redondeados - así "Total Nacional" y cada subtotal departamental
+coinciden EXACTOS con la suma de sus municipios, por construcción.
+
+Esto NO garantiza consistencia horizontal (ej. que "mujeres + hombres +
+persona jurídica" sume exacto la columna "Total ganaderos" en la misma fila,
+si esas 4 columnas se calcularon como agregaciones independientes) - eso
+puede seguir teniendo una diferencia de ±1 unidad por fila, aceptado en
+publicaciones estadísticas oficiales (redondeo independiente por columna).
 """
 from __future__ import annotations
 
@@ -34,6 +55,7 @@ def generar_cuadro(
     group_extra: list[str] | None = None,
     catalogo_mun: pd.DataFrame | None = None,
     catalogo_dep: pd.DataFrame | None = None,
+    columnas_totales: dict[str, list[str]] | None = None,
 ) -> pd.DataFrame:
     """Genera un cuadro con jerarquía Nacional -> Departamento -> Municipio.
 
@@ -46,6 +68,15 @@ def generar_cuadro(
         dimensión de fila extra (ej. ["ohOrden", "orientacionhato"]). El orden
         de la lista determina el orden de clasificación final (poner primero
         la columna *Orden numérica). Si es None, no hay desagregación extra.
+    columnas_totales: opcional, `{columna_total: [columna_componente, ...]}`
+        para columnas que deben sumar exacto el total de sus componentes EN
+        LA MISMA FILA (ej. `{"total_ganaderos": ["natural_total", "juridica"],
+        "natural_total": ["mujeres", "hombres"]}`) - ver "REDONDEO" en el
+        docstring del módulo: sin esto, cada columna se redondea por separado
+        y puede quedar un residuo de ±1-2 unidades entre una columna "total"
+        y la suma real de sus componentes YA redondeados. Si una columna total
+        depende de otra columna total (como acá), declarar la más básica
+        PRIMERO - se aplican en el orden del diccionario.
 
     Returns
     -------
@@ -69,6 +100,16 @@ def generar_cuadro(
 
     mun_full = universo_mun.merge(mun_agg, on=group_cols_mun, how="left")
     mun_full[value_cols] = mun_full[value_cols].fillna(0)
+    # Redondeo único, al nivel más fino - ver "REDONDEO" en el docstring del
+    # módulo. Departamento/Nacional se calculan DESPUÉS de esto, como suma de
+    # estos enteros, para que sean consistentes por construcción.
+    mun_full[value_cols] = mun_full[value_cols].round(0)
+
+    # Consistencia horizontal: columnas "total" se recalculan como la suma de
+    # sus componentes YA redondeados (en vez de quedarse con su propio valor
+    # redondeado de forma independiente) - ver `columnas_totales` arriba.
+    for col_total, componentes in (columnas_totales or {}).items():
+        mun_full[col_total] = mun_full[componentes].sum(axis=1)
 
     dep_group_cols = ["COD_DEPARTAMENTO"] + group_extra
     dep_agg = mun_full.groupby(dep_group_cols, as_index=False, dropna=False)[value_cols].sum()

@@ -30,18 +30,29 @@ sin pasar nunca por texto, y valida el resultado contra:
  - El total nacional calibrado, que debe quedar cercano al total nacional que
    reporta Fedegán (no idéntico: los municipios sin match o con RUV=0 quedan
    sin poder ajustarse, ver `_factor_seguro` abajo).
+
+REDIRIGIDO (2026-09-22, instrucción explícita del usuario): el numerador RUV
+ya NO se lee de `config.RUTA_C2` (`base_ruv_calibrada_C2_2025.csv`, la base
+"ya calibrada" que ahora solo se usa para comparar al final, nunca como
+fuente) - se lee de `preparar_ciclo2encuesta.leer()` (RUV + encuesta unidos
+desde los insumos crudos reales, ver ese módulo). El bug de corrupción de
+texto que motivó este módulo seguía siendo real en el CSV heredado, pero ya
+no aplica: acá nunca se pasa por ese archivo.
 """
 from __future__ import annotations
 
 import pandas as pd
 
-from . import catalogo_territorial, config
+from . import catalogo_territorial, config, preparar_base_c2, preparar_ciclo2encuesta
 
-_COLS_RUV_CRUDO = [
-    "CODIGO MUNICIPIO",
-    "TOTAL AFTOSA BOVINOS", "TOTAL AFTOSA BOVINOS NV",
-    "TOTAL AFTOSA BUFALINOS", "TOTAL AFTOSA BUFALINOS NV",
-]
+# Suma de los 13 tramos de sexo/edad (+ su propia NV) por especie, NO el
+# agregado `TOTAL_AFT_<especie>(+_NV)` - mismo criterio deliberado que
+# `calibracion_c1.py` (ver su docstring: usar el agregado como denominador
+# deja un residuo frente a Fedegán incluso en municipios con match perfecto,
+# porque `aplicar_factor_calibracion`/`base_maestra_inventario_c2.py`
+# multiplican el factor contra los 13 tramos reales, no contra el agregado).
+_COLS_TRAMO_BOVINOS = list(preparar_base_c2._RENOMBRE_INVENTARIO_BOVINOS_C2.values())
+_COLS_TRAMO_BUFALINOS = list(preparar_base_c2._RENOMBRE_INVENTARIO_BUFALINOS_C2.values())
 
 
 def _cargar_fedegan_ciclo2_2025() -> pd.DataFrame:
@@ -60,13 +71,15 @@ def _cargar_fedegan_ciclo2_2025() -> pd.DataFrame:
 
 
 def _cargar_inventario_ruv_crudo() -> pd.DataFrame:
-    ruv = pd.read_csv(
-        config.RUTA_C2, sep=";", encoding="utf-8-sig", encoding_errors="replace",
-        usecols=_COLS_RUV_CRUDO, decimal=",",
-    )
-    ruv["COD_MPIO"] = ruv["CODIGO MUNICIPIO"].astype(str).str.zfill(5)
-    ruv["TOTAL_AFTOSA_BOVINOS"] = ruv["TOTAL AFTOSA BOVINOS"].fillna(0) + ruv["TOTAL AFTOSA BOVINOS NV"].fillna(0)
-    ruv["TOTAL_AFTOSA_BUFALINOS"] = ruv["TOTAL AFTOSA BUFALINOS"].fillna(0) + ruv["TOTAL AFTOSA BUFALINOS NV"].fillna(0)
+    """RUV + encuesta ya unidos (`preparar_ciclo2encuesta.leer()`) - MISMO
+    universo (los que respondieron la encuesta) que usa el resto de la
+    cadena de calibración C2 (`calibracion_predios_c2.py`,
+    `calibracion_bovinos_bufalinos_c2.py`), no el universo RUV completo."""
+    cols = ["CODIGO_MUNICIPIO"] + _COLS_TRAMO_BOVINOS + _COLS_TRAMO_BUFALINOS
+    ruv = preparar_ciclo2encuesta.leer(columns=cols)
+    ruv["COD_MPIO"] = ruv["CODIGO_MUNICIPIO"].astype(int).astype(str).str.zfill(5)
+    ruv["TOTAL_AFTOSA_BOVINOS"] = ruv[_COLS_TRAMO_BOVINOS].fillna(0).sum(axis=1)
+    ruv["TOTAL_AFTOSA_BUFALINOS"] = ruv[_COLS_TRAMO_BUFALINOS].fillna(0).sum(axis=1)
     return ruv.groupby("COD_MPIO", as_index=False)[["TOTAL_AFTOSA_BOVINOS", "TOTAL_AFTOSA_BUFALINOS"]].sum()
 
 
@@ -75,17 +88,41 @@ def _factor_seguro(numerador: pd.Series, denominador: pd.Series) -> pd.Series:
     si RUV=0 el resultado calibrado da 0 sin importar el factor (no hay nada
     que escalar - es un hueco de cobertura del RUV, no algo que este factor
     pueda corregir); si no hay match en Fedegán tampoco hay con qué ajustar.
-    Misma convención que `preparar_base.aplicar_factor_calibracion` usa para
-    Ciclo 1 (`factor = df[factor_col].fillna(1.0)`)."""
+    Misma convención que `preparar_base_c1.aplicar_factor_calibracion` usa
+    para Ciclo 1 (`factor = df[factor_col].fillna(1.0)`)."""
     return (numerador / denominador).where(denominador > 0).fillna(1.0)
 
 
-def calcular_factor_c2() -> pd.DataFrame:
+def _fedegan_ciclo2_con_codigo_municipio() -> pd.DataFrame:
+    """Cruza Fedegán (solo trae Departamento/Municipio en texto, sin código
+    DIVIPOLA propio) contra el catálogo DIVIPOLA para obtener CODIGO_MUNICIPIO.
+    Falla fuerte si algún nombre no cruza - si no, esa fila se perdería en
+    silencio más adelante (nunca se uniría a nuestro inventario RUV)."""
     divipola = catalogo_territorial.cargar_catalogo_municipios().rename(
         columns={"CODIGO_MUNICIPIO": "COD_MPIO", "DEPARTAMENTO": "Departamento", "MUNICIPIO": "Municipio"}
     )
     fedegan = _cargar_fedegan_ciclo2_2025()
     fedegan_join = fedegan.merge(divipola[["COD_MPIO", "Departamento", "Municipio"]], on=["Departamento", "Municipio"], how="left")
+
+    huerfanas = fedegan_join[fedegan_join["COD_MPIO"].isna()]
+    if len(huerfanas):
+        raise ValueError(
+            f"{len(huerfanas)} filas de Fedegán (Cuadro 2_Cobertura, Ciclo 2 2025) no cruzaron contra "
+            f"DIVIPOLA: {list(huerfanas[['Departamento', 'Municipio']].itertuples(index=False, name=None))} - "
+            "revisar `config.EXCEPCIONES_MUNICIPIO_FEDEGAN` antes de confiar en este factor."
+        )
+    assert len(fedegan_join) == len(fedegan), "el cruce contra DIVIPOLA duplicó filas de Fedegán (fan-out inesperado)"
+
+    sin_fedegan = set(divipola["COD_MPIO"]) - set(fedegan_join["COD_MPIO"].dropna())
+    print(
+        f"Municipios DIVIPOLA sin fila en Fedegán Ciclo 2 2025: {len(sin_fedegan)} "
+        "(esperado: municipios sin ningún registro RUV, no un fallo de cruce de nombres)"
+    )
+    return fedegan_join
+
+
+def calcular_factor_c2() -> pd.DataFrame:
+    fedegan_join = _fedegan_ciclo2_con_codigo_municipio()
 
     inventario_ruv = _cargar_inventario_ruv_crudo()
 
@@ -112,7 +149,7 @@ def generar_y_guardar() -> None:
     factor = calcular_factor_c2()
     _validar(factor)
     config.RUTA_FACTOR_C2.parent.mkdir(parents=True, exist_ok=True)
-    factor.to_csv(config.RUTA_FACTOR_C2, sep=";", decimal=",", index=False)
+    factor.to_csv(config.RUTA_FACTOR_C2, sep=";", decimal=",", index=False, encoding="utf-8-sig")
     print(f"\nGuardado: {config.RUTA_FACTOR_C2}")
 
 

@@ -10,7 +10,16 @@ from __future__ import annotations
 
 import pandas as pd
 
-from .. import agregador, config, preparar_base
+from .. import agregador, base_maestra_inventario_c1, config, preparar_base_c1
+
+
+def _leer_maestra_c1() -> pd.DataFrame:
+    """Base maestra de inventario Ciclo 1 (ver `base_maestra_inventario_c1.py`):
+    ya trae las columnas de tramo de bovinos/bufalinos calibradas, y
+    orientacionhato/sistemaproductivo/otras especies listas para usar - los
+    cuadros de acá solo seleccionan y agregan, no recalculan nada."""
+    return pd.read_parquet(base_maestra_inventario_c1.RUTA_BASE_MAESTRA_INVENTARIO_C1)
+
 
 # Orden EXACTO de columnas tal como aparecen en la plantilla Excel (bloque
 # "Primer ciclo nacional de vacunación de 2025", columnas E..Z), fila 6/7 del
@@ -41,13 +50,9 @@ def _preparar(especie: str, incluir_orientacion: bool = False, ciclo: str = "C1"
         from .. import preparar_base_c2
         df = preparar_base_c2.cargar_inventario_c2(especie, incluir_orientacion=incluir_orientacion)
     else:
-        columnas = preparar_base.columnas_inventario(especie)
-        columnas_extra = columnas + (["R7"] if incluir_orientacion else [])
-        df = preparar_base.cargar_base_cruda(especie, columnas_extra=columnas_extra)
-        df = preparar_base.aplicar_factor_calibracion(df, especie, columnas)
-        if incluir_orientacion:
-            df = preparar_base.renombrar_preguntas(df)
-            df = preparar_base.normalizar_categoricas(df)  # normaliza "Ganadería de leche" -> "...Leche"
+        # Ya viene calibrada (por especie) y con orientacionhato normalizada -
+        # ver `base_maestra_inventario_c1.py`.
+        df = _leer_maestra_c1()
     prefijo = "BOV" if especie.lower() == "bovinos" else "BUF"
 
     macho = {
@@ -108,6 +113,26 @@ def _value_cols() -> list[str]:
     )
 
 
+def _columnas_totales() -> dict[str, list[str]]:
+    """`total_X = macho_X + hembra_X` (consistencia horizontal, ver
+    `agregador.generar_cuadro`) - "macho_total"/"hembra_total" primero,
+    porque "total_total" depende de ellos. `total_may_3_ani` es un caso
+    especial: el tramo hembra correspondiente en la plantilla real está
+    partido en 2 (`hembra_3_5_ani` + `hembra_may_5_ani`), igual que en
+    `_preparar`."""
+    mapa = {
+        "macho_total": [f"macho_{c}" for c in COLUMNAS_MACHO],
+        "hembra_total": [f"hembra_{c}" for c in COLUMNAS_HEMBRA],
+        "total_total": ["macho_total", "hembra_total"],
+    }
+    for c in COLUMNAS_TOTAL:
+        if c == "may_3_ani":
+            mapa[f"total_{c}"] = ["macho_may_3_ani", "hembra_3_5_ani", "hembra_may_5_ani"]
+        else:
+            mapa[f"total_{c}"] = [f"macho_{c}", f"hembra_{c}"]
+    return mapa
+
+
 def generar(especie: str, ciclo: str = "C1") -> pd.DataFrame:
     """Cuadro 3 (bovinos) / Cuadro 7 real de la plantilla (bufalinos): cantidad
     de animales por sexo y edad, según total nacional/departamento/municipio.
@@ -118,7 +143,7 @@ def generar(especie: str, ciclo: str = "C1") -> pd.DataFrame:
     """
     base = _preparar(especie, ciclo=ciclo)
     value_cols = _value_cols()
-    return agregador.generar_cuadro(base, value_cols)
+    return agregador.generar_cuadro(base, value_cols, columnas_totales=_columnas_totales())
 
 
 def value_cols() -> list[str]:
@@ -151,10 +176,8 @@ def generar_sistema_productivo() -> pd.DataFrame:
     en el predio (pregunta 11/12 del formulario, columna R11 en la base cruda
     -ver nota de desfase en config.RENOMBRE_PREGUNTAS-).
     """
-    columnas_inv = preparar_base.columnas_inventario("bovinos")
-    df = preparar_base.cargar_base_cruda("bovinos", columnas_extra=columnas_inv + ["R11"])
-    df = preparar_base.aplicar_factor_calibracion(df, "bovinos", columnas_inv)
-    df = preparar_base.renombrar_preguntas(df)
+    columnas_inv = preparar_base_c1.columnas_inventario("bovinos")
+    df = _leer_maestra_c1()  # ya calibrado y renombrado - ver base_maestra_inventario_c1.py
 
     out = df[["CODIGO_MUNICIPIO"]].copy()
     total_bov = _total_animales(df, columnas_inv)
@@ -163,7 +186,11 @@ def generar_sistema_productivo() -> pd.DataFrame:
         out[f"sist_{_SISTEMA_SLUG[sistema]}"] = total_bov.where(df["sistemaproductivo"] == sistema, 0.0)
 
     value_cols_ = ["sist_total"] + [f"sist_{_SISTEMA_SLUG[s]}" for s in SISTEMA_PRODUCTIVO_ORDEN]
-    return agregador.generar_cuadro(out, value_cols_)
+    # sist_total = suma de los 4 sistemas (sistemaproductivo no tiene nulos ni
+    # categorías fuera de esas 4 - verificado) - consistencia horizontal, ver
+    # `agregador.generar_cuadro`.
+    columnas_totales = {"sist_total": [f"sist_{_SISTEMA_SLUG[s]}" for s in SISTEMA_PRODUCTIVO_ORDEN]}
+    return agregador.generar_cuadro(out, value_cols_, columnas_totales=columnas_totales)
 
 
 def value_cols_sistema_productivo() -> list[str]:
@@ -187,16 +214,19 @@ def generar_otras_especies(ciclo: str = "C1") -> pd.DataFrame:
         from .. import preparar_base_c2
         df = preparar_base_c2.cargar_otras_especies_c2()
     else:
-        # Estas columnas existen igual en bovinos y bufalinos (son del predio,
-        # no del animal calibrado); se usa la base de bovinos como fuente única
-        # para no duplicar el conteo de predios que están en ambos CSV.
-        df = preparar_base.cargar_base_cruda("bovinos", columnas_extra=columnas)
+        # Estas columnas nunca se calibran (igual que en el SAS original) -
+        # ver base_maestra_inventario_c1.py.
+        df = _leer_maestra_c1()
 
     out = df[["CODIGO_MUNICIPIO"] + columnas].copy()
     for c in columnas:
         out[c] = out[c].fillna(0)
 
-    return agregador.generar_cuadro(out, columnas)
+    # TOTAL_<especie> = <especie>_MACHO + <especie>_HEMBRA exacto (verificado
+    # con datos reales, sin excepciones) - consistencia horizontal, ver
+    # `agregador.generar_cuadro`.
+    columnas_totales = {f"TOTAL_{especie}": [f"{especie}_MACHO", f"{especie}_HEMBRA"] for especie in ESPECIES_ORDEN}
+    return agregador.generar_cuadro(out, columnas, columnas_totales=columnas_totales)
 
 
 def value_cols_otras_especies() -> list[str]:
@@ -239,6 +269,21 @@ def _columnas_bloque_sexo(prefijo: str) -> list[str]:
     return cols
 
 
+def _columnas_totales_bloque_sexo() -> dict[str, list[str]]:
+    """Consistencia horizontal para `cols_sexo` (total_*/macho_*/hembra_coarse_*,
+    ver `agregador.generar_cuadro`) - `hembra_coarse` ya viene con los mismos
+    6 tramos de `COLUMNAS_TOTAL` (sin el split 3-5a/+5a que sí tiene
+    `_columnas_totales`), así que acá no hace falta ningún caso especial."""
+    mapa = {
+        "macho_total": [f"macho_{c}" for c in COLUMNAS_MACHO],
+        "hembra_coarse_total": [f"hembra_coarse_{c}" for c in COLUMNAS_TOTAL],
+        "total_total": ["macho_total", "hembra_coarse_total"],
+    }
+    for c in COLUMNAS_TOTAL:
+        mapa[f"total_{c}"] = [f"macho_{c}", f"hembra_coarse_{c}"]
+    return mapa
+
+
 def generar_por_orientacion(especie: str = "bovinos", ciclo: str = "C1") -> tuple[pd.DataFrame, list[str]]:
     """Cuadro 4 (Primer ciclo) / Cuadro 5 (Segundo ciclo, misma estructura,
     `ciclo="C2"`): inventario bovino por edad, sexo y orientación del hato
@@ -256,10 +301,18 @@ def generar_por_orientacion(especie: str = "bovinos", ciclo: str = "C1") -> tupl
     cols_sexo = _columnas_bloque_sexo("")  # total_*, macho_*, hembra_coarse_*  (21 cols)
 
     # Bloque "Total inventario bovino" (7 cols, NO se redistribuye por
-    # orientación: es el total crudo, igual al del Cuadro 3).
+    # orientación): se reutiliza DIRECTO la tabla de `generar()` (Cuadro 3),
+    # no se recalcula por separado - antes se recalculaba con su propio
+    # `agregador.generar_cuadro` (mismos datos, pero otra `columnas_totales`
+    # / otro conjunto de columnas "hoja" que se redondean), lo que dejaba un
+    # residuo de ~62 animales contra Cuadro 3 incluso sin tocar nada más -
+    # detectado al corregir el residuo de ~1.808 (ver más abajo). Reusar la
+    # MISMA tabla garantiza coincidencia EXACTA con Cuadro 3 por construcción
+    # (a pedido del usuario, 2026-09-21).
     total_cols = ["total_total"] + [f"total_{c}" for c in COLUMNAS_TOTAL]
-    tabla_total = agregador.generar_cuadro(base[["CODIGO_MUNICIPIO"] + total_cols], total_cols)
-    tabla_total = tabla_total.rename(columns={c: f"blk_total__{c}" for c in total_cols})
+    tabla_total = generar(especie, ciclo=ciclo)[
+        ["NIVEL", "COD_DEPARTAMENTO", "DEPARTAMENTO", "CODIGO_MUNICIPIO", "MUNICIPIO"] + total_cols
+    ].rename(columns={c: f"blk_total__{c}" for c in total_cols})
 
     redistribuido = redistribucion.redistribuir_por_categoria(
         base[["CODIGO_MUNICIPIO", "orientacionhato"] + cols_sexo],
@@ -273,7 +326,9 @@ def generar_por_orientacion(especie: str = "bovinos", ciclo: str = "C1") -> tupl
     for orientacion in ORIENTACIONES_COLUMNA:
         slug = _ORIENTACION_SLUG[orientacion]
         subset = redistribuido[redistribuido["orientacionhato"] == orientacion]
-        tabla_or = agregador.generar_cuadro(subset[["CODIGO_MUNICIPIO"] + cols_sexo], cols_sexo)
+        tabla_or = agregador.generar_cuadro(
+            subset[["CODIGO_MUNICIPIO"] + cols_sexo], cols_sexo, columnas_totales=_columnas_totales_bloque_sexo()
+        )
         renombre = {c: f"blk_{slug}__{c}" for c in cols_sexo}
         tabla_or = tabla_or.rename(columns=renombre)
         cols_valor_or = list(renombre.values())
@@ -284,6 +339,30 @@ def generar_por_orientacion(especie: str = "bovinos", ciclo: str = "C1") -> tupl
             [resultado.reset_index(drop=True), tabla_or[cols_valor_or].reset_index(drop=True)], axis=1
         )
         columnas_finales += cols_valor_or
+
+    # Consistencia horizontal ENTRE bloques: el bloque "Total inventario
+    # bovino" (= Cuadro 3, fijo desde arriba) y los 6 bloques de orientación
+    # se redondearon cada uno por separado - antes de redondear son EXACTOS
+    # (la redistribución de `redistribucion.py` preserva el total sin
+    # pérdida), pero al redondear cada bloque de forma independiente queda
+    # un residuo (~1.808 animales / 0.006% a nivel nacional, detectado por
+    # el usuario 2026-09-21). Decisión del usuario: el bloque "Total" NO se
+    # toca (debe seguir coincidiendo exacto con Cuadro 3, ver arriba) - el
+    # residuo se absorbe en "Doble propósito" (la orientación más grande, la
+    # que mejor lo diluye proporcionalmente) en vez de en el total. Esto
+    # deja una inconsistencia interna PEQUEÑA y aceptada dentro del propio
+    # bloque "Doble propósito" (su total_X ya no es EXACTO macho_X+hembra_X,
+    # queda desviado por el residuo) - no se puede satisfacer simultáneamente
+    # "Total = Cuadro 3", "Total = suma orientaciones" y "cada bloque
+    # internamente consistente" con redondeo entero simple.
+    slug_absorbe = _ORIENTACION_SLUG["Doble propósito"]
+    for c in total_cols:
+        otras = [
+            resultado[f"blk_{_ORIENTACION_SLUG[o]}__{c}"]
+            for o in ORIENTACIONES_COLUMNA
+            if o != "Doble propósito"
+        ]
+        resultado[f"blk_{slug_absorbe}__{c}"] = resultado[f"blk_total__{c}"] - sum(otras)
 
     value_cols_finales = [c for c in columnas_finales if c not in (
         "NIVEL", "COD_DEPARTAMENTO", "DEPARTAMENTO", "CODIGO_MUNICIPIO", "MUNICIPIO"

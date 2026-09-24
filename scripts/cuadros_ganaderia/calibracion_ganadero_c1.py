@@ -1,17 +1,22 @@
 """`cal_cobertura`, `calruv`, `cal_predios`, `cal_bovinos`, `cal_bufalinos` de
-Ciclo 1 2025, tal como los usaba Carolina - ya NO reconstruidos por
-aproximación (ver historial: una primera versión de este módulo los estimaba
-a partir de `Total Predios PM/Vacunados` del archivo histórico de Fedegán,
-válida pero aproximada). El usuario encontró los 2 archivos originales:
+Ciclo 1 2025 - ya NO reconstruidos por aproximación (ver historial: una
+primera versión de este módulo los estimaba a partir de `Total Predios
+PM/Vacunados` del archivo histórico de Fedegán, válida pero aproximada). El
+usuario encontró los 2 archivos originales de Carolina, que sirven como punto
+de partida (crosswalk municipio_id/CODIGO_MUNICIPIO y `cal_bovinos`/
+`cal_bufalinos`/`cal_cobertura` heredados) y como referencia de comparación
+para `calruv` y `cal_predios`, que ya se recalculan de forma independiente
+(ver `calibracion_calruv_c1.py` / `calibracion_predios_c1.py`):
 
  - `Programas Carolina/calibrac12025.xlsx` (= "calibra1" en el SAS): trae
    `Departamento`/`Municipio` (nombre, cruzan 100% contra DIVIPOLA con las
    mismas 3 excepciones de `calibracion_c2.py`), `municipio_id`, y los 4
    factores `cal_predios`/`cal_bovinos`/`cal_bufalinos`/`cal_cobertura`.
-   Verificado: su columna `predios ruv` para un municipio coincide EXACTO con
-   nuestro conteo de `CODIGO_SIT` únicos en ese municipio (ej. Abejorral: 963
-   en ambos) - confirma que `municipio_id` es el mismo universo que nuestra
-   base.
+   Su columna `predios ruv` (pese al nombre) equivale a contar `CODIGO_SIT`
+   únicos en `ciclo1encuesta.sas7bdat` (predios que además respondieron la
+   encuesta), NO en el universo RUV completo (`ciclo1ruv.sas7bdat`) - ver
+   `calibracion_predios_c1.py` para la prueba que lo confirmó (coincide
+   EXACTO en 1055/1055 municipios una vez se usa la base correcta).
  - `Programas Carolina/calibraencuestac1.xlsx` (= "calibraencuestac1" en el
    SAS): trae `MUNICIPIO_ID` (mismo esquema que el archivo anterior,
    verificado: 1055/1055 filas cruzan por `municipio_id` sin ningún caso sin
@@ -68,16 +73,50 @@ def _cargar_crosswalk_municipio_id() -> pd.DataFrame:
 
 
 def calcular_factores_ganadero_c1() -> pd.DataFrame:
-    cruce = _cargar_crosswalk_municipio_id()
-    calruv = pd.read_excel(RUTA_CALIBRA_ENCUESTA_C1, sheet_name="Hoja1")
-
-    factor = cruce.merge(
-        calruv[["MUNICIPIO_ID", "calruv"]], left_on="municipio_id", right_on="MUNICIPIO_ID", how="left"
+    """`calruv`, `cal_predios`, `cal_bovinos`, `cal_bufalinos` y `cal_cobertura`
+    se recalculan de forma independiente a partir de las bases crudas
+    (`calibracion_calruv_c1.py` / `calibracion_predios_c1.py` /
+    `calibracion_bovinos_bufalinos_c1.py` / `calibracion_cobertura_c1.py`) en
+    vez de heredarlos de `calibraencuestac1.xlsx` / `calibrac12025.xlsx` - ver
+    esos módulos para la fórmula y la validación contra lo heredado."""
+    from . import (
+        calibracion_bovinos_bufalinos_c1,
+        calibracion_calruv_c1,
+        calibracion_cobertura_c1,
+        calibracion_predios_c1,
     )
-    sin_calruv = factor["calruv"].isna().sum()
-    if sin_calruv:
-        print(f"AVISO: {sin_calruv} municipios sin match en calibraencuestac1.xlsx - calruv queda en 1.0 para esos.")
-    factor["calruv"] = factor["calruv"].fillna(1.0)
+
+    cruce = _cargar_crosswalk_municipio_id().drop(
+        columns=["cal_predios", "cal_bovinos", "cal_bufalinos", "cal_cobertura"]
+    )
+
+    calruv_propio = calibracion_calruv_c1.calcular_calruv()[["CODIGO_MUNICIPIO", "calruv_calculado"]].rename(
+        columns={"calruv_calculado": "calruv"}
+    )
+    predios_propio = calibracion_predios_c1.calcular_cal_predios()[
+        ["CODIGO_MUNICIPIO", "cal_predios_calculado"]
+    ].rename(columns={"cal_predios_calculado": "cal_predios"})
+    bovinos_propio = calibracion_bovinos_bufalinos_c1.calcular_cal_especie("bovinos")[["CODIGO_MUNICIPIO", "cal_bovinos"]]
+    bufalinos_propio = calibracion_bovinos_bufalinos_c1.calcular_cal_especie("bufalinos")[["CODIGO_MUNICIPIO", "cal_bufalinos"]]
+    cobertura_propio = calibracion_cobertura_c1.calcular_cal_cobertura()[["CODIGO_MUNICIPIO", "cal_cobertura"]]
+
+    factor = cruce.merge(calruv_propio, on="CODIGO_MUNICIPIO", how="left")
+    factor = factor.merge(predios_propio, on="CODIGO_MUNICIPIO", how="left")
+    factor = factor.merge(bovinos_propio, on="CODIGO_MUNICIPIO", how="left")
+    factor = factor.merge(bufalinos_propio, on="CODIGO_MUNICIPIO", how="left")
+    factor = factor.merge(cobertura_propio, on="CODIGO_MUNICIPIO", how="left")
+
+    for col, etiqueta in [
+        ("calruv", "las bases crudas de RUV/encuesta"),
+        ("cal_predios", "Fedegán/encuesta"),
+        ("cal_bovinos", "Fedegán/encuesta"),
+        ("cal_bufalinos", "Fedegán/encuesta"),
+        ("cal_cobertura", "Fedegán"),
+    ]:
+        sin_match = factor[col].isna().sum()
+        if sin_match:
+            print(f"AVISO: {sin_match} municipios sin match en {etiqueta} - {col} queda en 1.0 para esos.")
+        factor[col] = factor[col].fillna(1.0)
 
     return factor[
         ["CODIGO_MUNICIPIO", "Departamento", "Municipio", "municipio_id",
@@ -100,7 +139,7 @@ def generar_y_guardar() -> None:
     factor = calcular_factores_ganadero_c1()
     _validar(factor)
     config.RUTA_FACTOR_GANADERO_C1.parent.mkdir(parents=True, exist_ok=True)
-    factor.to_csv(config.RUTA_FACTOR_GANADERO_C1, sep=";", decimal=",", index=False)
+    factor.to_csv(config.RUTA_FACTOR_GANADERO_C1, sep=";", decimal=",", index=False, encoding="utf-8-sig")
     print(f"\nGuardado: {config.RUTA_FACTOR_GANADERO_C1}")
 
 

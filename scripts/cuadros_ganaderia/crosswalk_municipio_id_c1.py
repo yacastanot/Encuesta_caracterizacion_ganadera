@@ -3,7 +3,7 @@
 listas de códigos centinela 99999/88888/44444) a nuestro `CODIGO_MUNICIPIO`
 (DIVIPOLA de 5 dígitos).
 
-Fuente: `Programas Carolina/para calibrar formulado fedegan.xlsx`, hoja
+Fuente: `01Entrada/2025 I/para calibrar formulado fedegan.xlsx`, hoja
 "Hoja3" - trae DIRECTO `COD_DEPARTAMENTO`/`COD_MUNICIPIO` (DIVIPOLA) junto con
 `municipio_id`/`DEPARTAMENTO_ID` (el id interno) para los 1121 municipios, sin
 restringirse a los que tienen datos RUV. Es la fuente de verdad; no hace falta
@@ -26,7 +26,7 @@ import pandas as pd
 
 from . import config
 
-RUTA_CROSSWALK_FUENTE = config.BASE_DIR / "Programas Carolina" / "para calibrar formulado fedegan.xlsx"
+RUTA_CROSSWALK_FUENTE = config.RUTA_01ENTRADA_2025_I / "para calibrar formulado fedegan.xlsx"
 
 MUNICIPIOS_ND_ID = [43, 185, 822, 826, 829, 833, 843, 848]
 MUNICIPIOS_88888_ID = [
@@ -61,7 +61,7 @@ def generar_y_guardar() -> None:
     crosswalk = construir_crosswalk_municipio_id()
 
     config.RUTA_CROSSWALK_MUNICIPIO_ID_C1.parent.mkdir(parents=True, exist_ok=True)
-    crosswalk.to_csv(config.RUTA_CROSSWALK_MUNICIPIO_ID_C1, sep=";", index=False)
+    crosswalk.to_csv(config.RUTA_CROSSWALK_MUNICIPIO_ID_C1, sep=";", index=False, encoding="utf-8-sig")
     print(f"Guardado: {config.RUTA_CROSSWALK_MUNICIPIO_ID_C1} ({len(crosswalk)} municipios)\n")
 
     nd = _traducir(crosswalk, MUNICIPIOS_ND_ID, "ND")
@@ -71,7 +71,7 @@ def generar_y_guardar() -> None:
     codigos = pd.concat([
         nd.assign(lista="ND"), l88888.assign(lista="88888"), l44444.assign(lista="44444"),
     ])[["lista", "municipio_id", "CODIGO_MUNICIPIO", "Departamento", "Municipio"]]
-    codigos.to_csv(config.RUTA_MUNICIPIOS_CENTINELA_C1, sep=";", index=False)
+    codigos.to_csv(config.RUTA_MUNICIPIOS_CENTINELA_C1, sep=";", index=False, encoding="utf-8-sig")
     print(f"\nGuardado: {config.RUTA_MUNICIPIOS_CENTINELA_C1}")
 
 

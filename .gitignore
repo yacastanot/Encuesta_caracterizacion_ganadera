@@ -1,10 +1,13 @@
 # Esta carpeta mezcla código con bases de datos e insumos pesados (CSV de
-# 1GB+, Excel, video, .docx). Solo se versiona el código en scripts/; todo lo
-# demás (Bases Calibradas/, output/, Cuadros/, Programas Carolina/, Scripts
-# calibración R/, Divipola/, Calibración/, etc.) queda fuera del repo.
+# 1GB+, Excel, video, .docx). Solo se versiona el código en scripts/ y la
+# documentación (README.md, docs/); todo lo demás (Bases Calibradas/, output/,
+# Cuadros/, Programas Carolina/, Scripts calibración R/, Divipola/,
+# Calibración/, etc.) queda fuera del repo.
 /*
 !/scripts/
 !/.gitignore
+!/README.md
+!/docs/
 
 # Dentro de scripts/, igual se excluyen los cachés de Python
 **/__pycache__/

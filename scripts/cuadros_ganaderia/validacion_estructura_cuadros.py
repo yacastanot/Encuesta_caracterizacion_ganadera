@@ -40,7 +40,7 @@ import openpyxl
 import pandas as pd
 
 from . import catalogo_territorial, config, main as m
-from .cuadros import comun, ganadero, inventario, predio_ganadero
+from .cuadros import comun, ganadero, ganadero_historico, inventario, predio_ganadero
 
 
 @dataclass
@@ -348,6 +348,20 @@ def _definiciones() -> list[DefinicionCuadro]:
             predio_ganadero.generar_cuadro19()[1],
         ),
         DefinicionCuadro(
+            # Histórico 2023-2025 ("nuevos/salieron/se mantienen" vs. ciclo
+            # anterior / mismo ciclo año anterior) - ver
+            # `cuadros/ganadero_historico.py`. SIN `columnas_totales`: cada
+            # "_total" debe coincidir exacto con Cuadro 1/3 (bloques 2025) -
+            # `value_cols` tomado directo de la función para no duplicar a
+            # mano las 16 columnas.
+            "ganadero_cuadro4_historico", gan, "Cuadro 4", 7,
+            ganadero_historico.generar_cuadro4()[1],
+        ),
+        DefinicionCuadro(
+            "ganadero_cuadro5_historico", gan, "Cuadro 5", 7,
+            ganadero_historico.generar_cuadro5()[1],
+        ),
+        DefinicionCuadro(
             "ganadero_cuadro3_sexo", gan, "Cuadro 3", 8,
             ["total_ganaderos", "natural_total", "mujeres", "hombres", "juridica"],
             {"natural_total": ["mujeres", "hombres"], "total_ganaderos": ["natural_total", "juridica"]},
@@ -366,6 +380,16 @@ def _definiciones() -> list[DefinicionCuadro]:
             "ganadero_cuadro6_delitos_c2", gan, "Cuadro 6", 7,
             ["total_ganaderos"] + ganadero._DELITOS + ["ninguno"],
             columna_inicio=m.COLUMNA_SEGUNDO_CICLO_GAN_C6,
+        ),
+        DefinicionCuadro(
+            # Ganaderos por sexo/persona jurídica x edad - solo Ciclo 1
+            # (`edadganadero` no existe en Ciclo 2). 7 rangos de edad reales
+            # (no los 4 que traía la plantilla original, ver docstring de
+            # `generar_cuadro7`) - cada bloque suma exacto sus 7 rangos, y
+            # "total_ganaderos" (E) suma exacto los 3 bloques de género
+            # (corregido 2026-09-25, igual que Cuadro 3).
+            "ganadero_cuadro7_edad", gan, "Cuadro 7", 11,
+            *_definicion_cuadro7_ganadero(),
         ),
         DefinicionCuadro(
             "ganadero_cuadro8_tenencia", gan, "Cuadro 8", 8,
@@ -458,6 +482,21 @@ def _definiciones() -> list[DefinicionCuadro]:
             {"total_ganaderos": ["conoce_si", "conoce_no"], "total_ganaderos2": ["interes_si", "interes_no"]},
         ),
     ]
+
+
+def _definicion_cuadro7_ganadero() -> tuple[list[str], dict[str, list[str]]]:
+    value_cols = ["total_ganaderos"]
+    columnas_totales: dict[str, list[str]] = {}
+    for prefijo, _ in ganadero._GENERO_PREFIJO_CUADRO7:
+        col_total_bloque = f"{prefijo}_total"
+        cols_rango = [f"{prefijo}_{ganadero._RANGO_EDAD_SLUG[r]}" for r in ganadero.RANGOS_EDAD_ORDEN]
+        value_cols += [col_total_bloque] + cols_rango
+        columnas_totales[col_total_bloque] = cols_rango
+    # Corregido 2026-09-25: "total_ganaderos" SÍ se deriva como suma de los 3
+    # bloques de género (igual que Cuadro 3) - ver docstring de
+    # `generar_cuadro7`.
+    columnas_totales["total_ganaderos"] = [f"{p}_total" for p, _ in ganadero._GENERO_PREFIJO_CUADRO7]
+    return value_cols, columnas_totales
 
 
 def _definicion_cuadro8_ganadero() -> tuple[list[str], dict[str, list[str]]]:
@@ -609,6 +648,42 @@ class ComparacionCruzada:
 def _comparaciones_cruzadas() -> list[ComparacionCruzada]:
     defs = {d.nombre: d for d in _definiciones()}
     return [
+        # --- ganadero: Cuadro 4/5 (histórico) vs. Cuadro 1/3 (bloques 2025) ---
+        # "Total de ganaderos en el ciclo" de los bloques 2025-C1/2025-C2 de
+        # Cuadro 4/5 es la MISMA cantidad real que "Total ganaderos" de
+        # Cuadro 1/3 (misma base_maestra_c1/c2, mismo peso_ganadero) -
+        # calculada de forma independiente en cada cuadro, debe coincidir
+        # exacto (ver docstring de `cuadros/ganadero_historico.py`).
+        ComparacionCruzada(
+            "ganadero: total_ganaderos (Cuadro 1 vs Cuadro 4, 2025-C1)",
+            defs["ganadero_cuadro1"], "total_ganaderos",
+            defs["ganadero_cuadro4_historico"], "c2025c1_total",
+        ),
+        ComparacionCruzada(
+            "ganadero: total_ganaderos (Cuadro 1 vs Cuadro 4, 2025-C2)",
+            defs["ganadero_cuadro1_c2"], "total_ganaderos",
+            defs["ganadero_cuadro4_historico"], "c2025c2_total",
+        ),
+        ComparacionCruzada(
+            "ganadero: total_ganaderos (Cuadro 1 vs Cuadro 5, 2025-C1)",
+            defs["ganadero_cuadro1"], "total_ganaderos",
+            defs["ganadero_cuadro5_historico"], "c2025c1_total",
+        ),
+        ComparacionCruzada(
+            "ganadero: total_ganaderos (Cuadro 1 vs Cuadro 5, 2025-C2)",
+            defs["ganadero_cuadro1_c2"], "total_ganaderos",
+            defs["ganadero_cuadro5_historico"], "c2025c2_total",
+        ),
+        ComparacionCruzada(
+            "ganadero: total_ganaderos (Cuadro 4 vs Cuadro 5, 2025-C1)",
+            defs["ganadero_cuadro4_historico"], "c2025c1_total",
+            defs["ganadero_cuadro5_historico"], "c2025c1_total",
+        ),
+        ComparacionCruzada(
+            "ganadero: total_ganaderos (Cuadro 4 vs Cuadro 5, 2025-C2)",
+            defs["ganadero_cuadro4_historico"], "c2025c2_total",
+            defs["ganadero_cuadro5_historico"], "c2025c2_total",
+        ),
         ComparacionCruzada(
             "predio_ganadero: total_predios_ganaderos (Cuadro 1 vs Cuadro 3)",
             defs["predio_ganadero_cuadro1"], "total_predios_ganaderos",

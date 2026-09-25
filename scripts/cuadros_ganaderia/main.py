@@ -21,7 +21,7 @@ import argparse
 import time
 
 from . import config, ensamblador
-from .cuadros import comun, ganadero, inventario, predio_ganadero
+from .cuadros import comun, ganadero, ganadero_historico, inventario, predio_ganadero
 
 RUTA_SALIDA_INVENTARIO = config.OUTPUT_DIR / "Cuadros caracterización inventario Ciclos 1 y 2_2025_generado.xlsx"
 RUTA_SALIDA_GANADERO = config.OUTPUT_DIR / "Cuadros caracterización del ganadero Ciclos 1 y 2_2025_generado.xlsx"
@@ -71,11 +71,17 @@ PASOS_INVENTARIO = [
 PASOS_GANADERO_COMUN = ["cuadro1_ganadero", "cuadro1_ganadero_c2", "cuadro1_ganadero_nuevos", "cuadro2_ganadero"]
 # Solo del libro "ganadero" (no se comparte con predio-ganadero/inventario).
 PASOS_GANADERO = PASOS_GANADERO_COMUN + [
+    # Cuadro 4/5: histórico 2023-2025, sin bloque C1/C2 propio (cada uno YA
+    # desglosa los 2 ciclos en sus propias columnas, ver
+    # `cuadros/ganadero_historico.py`).
+    "cuadro4_ganadero", "cuadro5_ganadero",
     # "_c2" restaurado 2026-09-23 (Fase 7) inmediatamente después de su
     # bloque C1 (misma hoja, columna distinta). Cuadro 16 no tiene bloque C2
     # (no existe `conformacion`/`intcarrera` en Ciclo 2).
     "cuadro3_ganadero", "cuadro3_ganadero_c2",
     "cuadro6_ganadero", "cuadro6_ganadero_c2",
+    # Cuadro 7: solo Ciclo 1 (edadganadero no existe en Ciclo 2).
+    "cuadro7_ganadero",
     "cuadro8_ganadero", "cuadro8_ganadero_c2",
     "cuadro9_ganadero", "cuadro9_ganadero_c2",
     "cuadro10_ganadero", "cuadro10_ganadero_c2",
@@ -285,6 +291,18 @@ def _paso_cuadro6_ganadero() -> None:
     print(f"  listo ({time.time()-t0:.1f}s). Filas: {len(tabla)}. Total nacional: {tabla.iloc[0]['total_ganaderos']:,.1f}")
 
 
+def _paso_cuadro7_ganadero() -> None:
+    """Cuadro 7 del libro "ganadero" ("Cantidad de ganaderos por sexo,
+    persona jurídica y edad") - solo Ciclo 1 (`edadganadero` no existe en
+    Ciclo 2). Plantilla ampliada de 4 a 7 rangos de edad reales, ver
+    `cuadros/ganadero.py`."""
+    t0 = time.time()
+    print("Cuadro 7 (ganaderos por sexo, persona jurídica y edad - Ciclo 1) ...")
+    tabla, cols = ganadero.generar_cuadro7()
+    ensamblador.guardar_pendiente("cuadro7_ganadero", tabla, tipo="cuadro", hoja="Cuadro 7", fila_nacional=11, value_cols=cols)
+    print(f"  listo ({time.time()-t0:.1f}s). Filas: {len(tabla)}. Total nacional: {tabla.iloc[0]['total_ganaderos']:,.1f}")
+
+
 def _paso_cuadro8_ganadero() -> None:
     """Cuadro 8 del libro "ganadero" ("Cantidad de ganaderos por sexo,
     tenencia del predio y persona jurídica") - no confundir con
@@ -382,6 +400,29 @@ def _paso_cuadro16_ganadero() -> None:
     tabla, cols = ganadero.generar_cuadro16()
     ensamblador.guardar_pendiente("cuadro16_ganadero", tabla, tipo="cuadro", hoja="Cuadro 16", fila_nacional=7, value_cols=cols)
     print(f"  listo ({time.time()-t0:.1f}s). Filas: {len(tabla)}. Total nacional (conoce): {tabla.iloc[0]['total_ganaderos']:,.1f}")
+
+
+def _paso_cuadro4_ganadero() -> None:
+    """Cuadro 4 del libro "ganadero" ("Cantidad de ganaderos, de nuevos
+    ganaderos y de ganaderos que se mantienen" respecto al CICLO anterior) -
+    ver `cuadros/ganadero_historico.py`. Usa insumos de 2023/2024 (histórico,
+    ver `config.py`), además de las bases maestras 2025 ya existentes."""
+    t0 = time.time()
+    print("Cuadro 4 (ganaderos nuevos/salieron/se mantienen vs. ciclo anterior) ...")
+    tabla, cols = ganadero_historico.generar_cuadro4()
+    ensamblador.guardar_pendiente("cuadro4_ganadero", tabla, tipo="cuadro", hoja="Cuadro 4", fila_nacional=7, value_cols=cols)
+    print(f"  listo ({time.time()-t0:.1f}s). Filas: {len(tabla)}. Total nacional 2025-C2: {tabla.iloc[0]['c2025c2_total']:,.1f}")
+
+
+def _paso_cuadro5_ganadero() -> None:
+    """Cuadro 5 del libro "ganadero" ("Cantidad de ganaderos, de nuevos
+    ganaderos y de ganaderos que se mantienen" respecto al mismo ciclo del
+    AÑO anterior) - ver `cuadros/ganadero_historico.py`."""
+    t0 = time.time()
+    print("Cuadro 5 (ganaderos nuevos/salieron/se mantienen vs. año anterior) ...")
+    tabla, cols = ganadero_historico.generar_cuadro5()
+    ensamblador.guardar_pendiente("cuadro5_ganadero", tabla, tipo="cuadro", hoja="Cuadro 5", fila_nacional=7, value_cols=cols)
+    print(f"  listo ({time.time()-t0:.1f}s). Filas: {len(tabla)}. Total nacional 2025-C2: {tabla.iloc[0]['c2025c2_total']:,.1f}")
 
 
 # --- Ciclo 2 (libro "ganadero") ---
@@ -840,6 +881,7 @@ _PASO_FUNC = {
     "cuadro3_ganadero": _paso_cuadro3_ganadero,
     "cuadro3_ganadero_c2": _paso_cuadro3_ganadero_c2,
     "cuadro6_ganadero": _paso_cuadro6_ganadero,
+    "cuadro7_ganadero": _paso_cuadro7_ganadero,
     "cuadro6_ganadero_c2": _paso_cuadro6_ganadero_c2,
     "cuadro8_ganadero": _paso_cuadro8_ganadero,
     "cuadro8_ganadero_c2": _paso_cuadro8_ganadero_c2,
@@ -858,6 +900,8 @@ _PASO_FUNC = {
     "cuadro15_ganadero": _paso_cuadro15_ganadero,
     "cuadro15_ganadero_c2": _paso_cuadro15_ganadero_c2,
     "cuadro16_ganadero": _paso_cuadro16_ganadero,
+    "cuadro4_ganadero": _paso_cuadro4_ganadero,
+    "cuadro5_ganadero": _paso_cuadro5_ganadero,
     "cuadro3_predio_ganadero": _paso_cuadro3_predio_ganadero,
     "cuadro3_predio_ganadero_c2": _paso_cuadro3_predio_ganadero_c2,
     "cuadro4_predio_ganadero": _paso_cuadro4_predio_ganadero,

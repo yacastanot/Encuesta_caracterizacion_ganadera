@@ -213,6 +213,26 @@ por `genero` (`Mujer`/`Hombre`/`config.GENERO_JURIDICA`, ya normalizado en
 `base_maestra.py`) - fórmula confirmada contra `4.2. cuadros ganadero.sas`
 (`gan_cal` agrupado por `genero`).
 
+### `fuente_cruda_historico.py` / `preparar_historico_2024.py` / `calibracion_cobertura_historico.py` / `base_maestra_ganadero_historico.py`
+Insumos de 2023/2024 - SOLO para el Cuadro 4/5 del libro "ganadero"
+(`cuadros/ganadero_historico.py`, "nuevos/salieron/se mantienen" ganaderos
+vs. ciclo anterior / mismo ciclo del año anterior). `fuente_cruda_historico.py`
+cachea a Parquet los `.sas7bdat` de esos años (mismo patrón que
+`fuente_cruda_c1.py`, con reintento a `latin1` si falla `utf-8` - los
+archivos de 2023 no son UTF-8, a diferencia de los de 2024/2025).
+`preparar_historico_2024.py` une RUV (`ruv.sas7bdat`, un solo archivo para
+los 2 ciclos - **ojo**: su columna `CICLO` no es 1/2 literal, es un contador
+interno sin reiniciar por año, verificado por conteo de filas) con la
+encuesta correspondiente por `RUV_ID`. `calibracion_cobertura_historico.py`
+generaliza `cal_cobertura = 1/C` (ver `calibracion_cobertura_c1.py`) a
+cualquier (año, ciclo) del histórico de Fedegán. `base_maestra_ganadero_historico.py`
+arma la base mínima (identidad + `peso_ganadero`, sin preguntas de encuesta)
+por ciclo: 2024 reconstruido desde cero con estos módulos, 2023 usa
+`c12023.sas7bdat`/`c22023.sas7bdat` (ya calibrados por el pipeline legado)
+tal cual - decisión del usuario, 2023 solo sirve de referencia histórica, no
+se publica ningún cuadro de ese año en este libro. Ver
+[07_cuadros.md](07_cuadros.md) para el detalle completo de Cuadro 4/5.
+
 ### `main.py`
 Orquestador de los cuadros de inventario. Cada paso (`cuadro3`, `cuadro4`,
 `cuadro6`, `cuadro7`, `cuadro8`, y sus variantes `_c2` para Ciclo 2) corre

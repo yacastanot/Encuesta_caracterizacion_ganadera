@@ -40,6 +40,7 @@ python -m scripts.cuadros_ganaderia.main --solo cuadro3
 - Módulos (`scripts/cuadros_ganaderia/*.py`) → [docs/04_modulos.md](docs/04_modulos.md)
 - Flujo de datos end-to-end → [docs/05_flujo_datos.md](docs/05_flujo_datos.md)
 - Convenciones de Git → [docs/06_git.md](docs/06_git.md)
+- Detalle de construcción de cada cuadro (variables crudas, base maestra, cálculos) → [docs/07_cuadros.md](docs/07_cuadros.md)
 
 ## Estado del proyecto
 

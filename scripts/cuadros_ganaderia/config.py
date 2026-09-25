@@ -91,6 +91,41 @@ EXCEPCIONES_MUNICIPIO_FEDEGAN = {
 
 CICLO_C2_DISPONIBLE = "Segundo ciclo nacional de vacunación de 2025"
 
+# --- Histórico 2023/2024: SOLO para el Cuadro 4/5 del libro "ganadero"
+# ("nuevos/salieron/se mantienen" ganaderos respecto al ciclo anterior / al
+# mismo ciclo del año anterior) - ningún otro cuadro los usa. Copiados
+# localmente con robocopy desde `S:\2024\01Entrada` / `S:\2023\01entrada`
+# (solo lectura, nunca se escribe ahí), seleccionando de cada carpeta (con
+# muchas versiones candidatas) el archivo con fecha de modificación más
+# reciente - instrucción explícita del usuario (2026-09-24).
+RUTA_01ENTRADA_2024 = BASE_DIR / "01Entrada" / "2024"
+# RUV 2024: `ruv.sas7bdat` (10-abr, más reciente que `ruvc1`/`ruvc2` del
+# 4-abr por separado) - verificado que es exactamente la unión de esos 2
+# (1.510.416 filas = 757.103 + 753.313), con columnas CICLO/ANIO para
+# separar cada ciclo, y nombres de columna ya cortos (AFT_BOV_*, no la
+# versión truncada AFTOSA_BOVINOS_* de ruvc1/ruvc2).
+RUTA_2024_RUV_CRUDO = RUTA_01ENTRADA_2024 / "ruv.sas7bdat"
+# Encuesta 2024: separada del RUV (se unen por `RUV_ID`, mismo patrón que
+# Ciclo 2 2025 - ver `preparar_ciclo2encuesta.py`). Candidato más reciente
+# por ciclo (de 4 y 2 versiones respectivamente, ver docstring de
+# `preparar_2024encuesta.py`).
+RUTA_2024_ENCUESTA_C1_CRUDO = RUTA_01ENTRADA_2024 / "encuestac1corregida.sas7bdat"
+RUTA_2024_ENCUESTA_C2_CRUDO = RUTA_01ENTRADA_2024 / "encuestac2_.sas7bdat"
+
+# 2023: a diferencia de 2024, NO hay un insumo crudo reciente y sin ambigüedad
+# (los candidatos crudos son de 2024, con múltiples versiones sin corregir
+# claras) - los archivos con fecha de modificación más reciente de toda la
+# carpeta (`c12023.sas7bdat`/`c22023.sas7bdat`, 1-sep-2025) ya vienen
+# RUV+encuesta unidos Y calibrados por el pipeline legado (traen
+# `predioganid`/`gan_cal`/`cal_cobertura` ya calculados). Decisión del
+# usuario (2026-09-24): usarlos tal cual para 2023 - a diferencia de 2024/2025,
+# 2023 solo sirve de referencia para el "ciclo anterior" de Cuadro 4/5, no se
+# publica ningún cuadro de 2023 en este libro, así que no hace falta
+# recalibrar desde cero para ese único año.
+RUTA_01ENTRADA_2023 = BASE_DIR / "01Entrada" / "2023"
+RUTA_2023_C1 = RUTA_01ENTRADA_2023 / "c12023.sas7bdat"
+RUTA_2023_C2 = RUTA_01ENTRADA_2023 / "c22023.sas7bdat"
+
 CUADROS_TEMPLATE_DIR = BASE_DIR / "Cuadros para publicación"
 TEMPLATE_GANADERO = CUADROS_TEMPLATE_DIR / "Cuadros caracterización del ganadero Ciclos 1 y 2_2025.xlsx"
 TEMPLATE_INVENTARIO = CUADROS_TEMPLATE_DIR / "Cuadros caracterización inventario Ciclos 1 y 2_2025.xlsx"

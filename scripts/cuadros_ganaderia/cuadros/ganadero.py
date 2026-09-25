@@ -505,3 +505,68 @@ def generar_cuadro16() -> tuple[pd.DataFrame, list[str]]:
     value_cols = ["total_ganaderos", "conoce_si", "conoce_no", "total_ganaderos2", "interes_si", "interes_no"]
     tabla = agregador.generar_cuadro(agg, value_cols, columnas_totales=columnas_totales)
     return tabla, value_cols
+
+
+# --- Cuadro 7: ganaderos por sexo, persona jurídica y edad ---
+# Rangos de edad EXACTOS de `edadganadero` (pregunta "4. Indique la edad del
+# ganadero..." - R4 en C1; NO EXISTE en el cuestionario de Ciclo 2, ver
+# `base_maestra_c2.py` - por eso este cuadro es solo Ciclo 1, igual que
+# Cuadro 16). La plantilla original traía 4 rangos ("Menores 18"/"Entre 18 y
+# 58"/"Entre 59 y 68"/"Mayor 69") que NO coinciden con ninguna categoría real
+# de los datos (verificado 2026-09-24: los valores reales son estos 7,
+# `value_counts()` sobre las 729.875 filas de `base_maestra_c1`, sin nulos)
+# - a pedido del usuario ("los límites de edad se deben reportar como están
+# construidos en la encuesta"), se usa la categorización REAL, no la de la
+# plantilla - la plantilla (`TEMPLATE_GANADERO`, hoja "Cuadro 7") se amplió
+# de 5 a 8 columnas por bloque (Total + 7 rangos, antes Total + 4) para que
+# quepan.
+RANGOS_EDAD_ORDEN = [
+    "Menor o igual a 15 años", "De 16 a 25 años", "De 26 a 35 años", "De 36 a 45 años",
+    "De 46 a 55 años", "De 56 a 65 años", "Mayor o igual a 66 años",
+]
+_RANGO_EDAD_SLUG = {
+    "Menor o igual a 15 años": "men_15", "De 16 a 25 años": "16_25", "De 26 a 35 años": "26_35",
+    "De 36 a 45 años": "36_45", "De 46 a 55 años": "46_55", "De 56 a 65 años": "56_65",
+    "Mayor o igual a 66 años": "may_66",
+}
+# Orden de bloques de la plantilla real (Mujer, Hombres, Persona Jurídica -
+# verificado columna por columna, NO es el mismo orden que `_GENERO_PREFIJO`
+# usa para otros cuadros de este módulo).
+_GENERO_PREFIJO_CUADRO7 = [("muj", "Mujer"), ("hom", "Hombre"), ("jur", config.GENERO_JURIDICA)]
+
+
+def generar_cuadro7() -> tuple[pd.DataFrame, list[str]]:
+    # SOLO Ciclo 1: `edadganadero` no existe en Ciclo 2 - sin parámetro
+    # `ciclo`, a propósito (mismo criterio que Cuadro 16).
+    maestra = _leer_maestra("C1")
+
+    agg = maestra.groupby("CODIGO_MUNICIPIO", as_index=False).agg(total_ganaderos=("peso_ganadero", "sum"))
+
+    columnas_totales: dict[str, list[str]] = {}
+    value_cols = ["total_ganaderos"]
+    for prefijo, genero in _GENERO_PREFIJO_CUADRO7:
+        subset = maestra[maestra["genero"] == genero]
+        col_total_bloque = f"{prefijo}_total"
+        cols_rango = [f"{prefijo}_{_RANGO_EDAD_SLUG[r]}" for r in RANGOS_EDAD_ORDEN]
+        for rango, col in zip(RANGOS_EDAD_ORDEN, cols_rango):
+            sub = _suma_por(subset, subset["edadganadero"] == rango, col)
+            agg = agg.merge(sub, on="CODIGO_MUNICIPIO", how="left")
+        agg[cols_rango] = agg[cols_rango].fillna(0.0)
+        agg[col_total_bloque] = agg[cols_rango].sum(axis=1)
+        columnas_totales[col_total_bloque] = cols_rango
+        value_cols += [col_total_bloque] + cols_rango
+
+    # "total_ganaderos" (columna E) SÍ se deriva como suma de los 3 bloques
+    # de género - corregido 2026-09-25 (el usuario detectó el residuo):
+    # a diferencia de Cuadro 6 (delitos, categorías NO excluyentes, ahí sí
+    # está justificado no forzar la suma), acá Mujer/Hombre/Persona Jurídica
+    # SÍ son excluyentes y exhaustivas - la versión anterior dejaba
+    # "total_ganaderos" independiente "para coincidir con Cuadro 1/3", pero
+    # esa razón no aplicaba: Cuadro 3 (mismo desglose de género, este mismo
+    # libro) YA deriva su total igual que acá, y tampoco se valida cruzado
+    # contra Cuadro 1 - dejar Cuadro 7 distinto era una inconsistencia, no
+    # una decisión real. Con esto, mujeres+hombres+jurídica = total_ganaderos
+    # exacto, igual que Cuadro 3.
+    columnas_totales["total_ganaderos"] = [f"{p}_total" for p, _ in _GENERO_PREFIJO_CUADRO7]
+    tabla = agregador.generar_cuadro(agg, value_cols, columnas_totales=columnas_totales)
+    return tabla, value_cols

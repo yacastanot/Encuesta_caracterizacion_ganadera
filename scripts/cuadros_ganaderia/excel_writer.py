@@ -37,6 +37,8 @@ from copy import copy
 
 import openpyxl
 import pandas as pd
+from openpyxl.styles import PatternFill
+from openpyxl.styles.colors import Color
 from openpyxl.worksheet.worksheet import Worksheet
 
 from . import agregador
@@ -46,6 +48,19 @@ COL_B_DEPARTAMENTO = 2
 COL_C_COD_MUNICIPIO = 3
 COL_D_MUNICIPIO = 4
 PRIMERA_COLUMNA_DATOS = 5  # columna E
+
+# Sombreado alterno de filas de datos (departamento/municipio) - mismo color
+# que usa el libro publicado 2024 (`anex-CAG-Caract*-2024.xlsx`, verificado
+# en las 3 hojas "Cuadro 1": relleno gris muy claro tema0/tint≈-0.05 en la
+# fila de índice PAR dentro del bloque departamento+municipio - fila 12 en
+# 2024, la primera fila de datos - y SIN relleno en la fila de índice impar,
+# alternando de ahí en adelante fila por fila, no por departamento).
+# Decisión del usuario (2026-09-24): igualar el formato del libro 2024,
+# aplicado acá en código porque la plantilla clona UN solo estilo para todas
+# las filas de datos (ver `_escribir_cuadro_en_wb`) - alternar el relleno no
+# se puede lograr solo editando la plantilla.
+_RELLENO_FILA_PAR = PatternFill(patternType="solid", fgColor=Color(theme=0, tint=-0.0499893185216834))
+_SIN_RELLENO = PatternFill(fill_type=None)
 
 
 def _clonar_estilo_celda(origen, destino) -> None:
@@ -60,6 +75,15 @@ def _clonar_estilo_celda(origen, destino) -> None:
 def _clonar_estilo_fila(ws_origen: Worksheet, fila_origen: int, ws_destino: Worksheet, fila_destino: int, n_columnas: int) -> None:
     for c in range(1, n_columnas + 1):
         _clonar_estilo_celda(ws_origen.cell(row=fila_origen, column=c), ws_destino.cell(row=fila_destino, column=c))
+
+
+def _aplicar_sombreado_alterno(ws_destino: Worksheet, fila_destino: int, n_columnas: int, indice: int, columna_inicio: int = 1) -> None:
+    """Sobreescribe SOLO el relleno (no fuente/borde, ya clonados aparte) de
+    una fila de datos según la paridad de `indice` (0-based dentro del
+    bloque departamento+municipio) - ver constantes arriba."""
+    relleno = _RELLENO_FILA_PAR if indice % 2 == 0 else _SIN_RELLENO
+    for c in range(columna_inicio, n_columnas + 1):
+        ws_destino.cell(row=fila_destino, column=c).fill = copy(relleno)
 
 
 def _desfusionar_desde(ws: Worksheet, fila_desde: int) -> None:
@@ -239,6 +263,7 @@ def _escribir_cuadro_en_wb(
         for i, row in depmun.iterrows():
             f = fila_dept_inicio + i
             _clonar_estilo_fila(ws_pristina, estilo_depto_origen, ws, f, n_columnas)
+            _aplicar_sombreado_alterno(ws, f, n_columnas, i)
             ws.cell(row=f, column=COL_A_COD_DEPARTAMENTO, value=row["COD_DEPARTAMENTO"])
             ws.cell(row=f, column=COL_B_DEPARTAMENTO, value=row["DEPARTAMENTO"])
             if row["NIVEL"] == agregador.NIVEL_MUNICIPIO:
@@ -259,6 +284,7 @@ def _escribir_cuadro_en_wb(
             f = fila_dept_inicio + i
             for c in range(columna_inicio, n_columnas + 1):
                 _clonar_estilo_celda(ws_pristina.cell(row=fila_nacional + 1, column=c), ws.cell(row=f, column=c))
+            _aplicar_sombreado_alterno(ws, f, n_columnas, i, columna_inicio=columna_inicio)
 
     # Los cuadros publicados muestran cantidades enteras (predios, ganaderos,
     # animales) - `formato_numero` ("#,##0") solo controla cómo se VE la

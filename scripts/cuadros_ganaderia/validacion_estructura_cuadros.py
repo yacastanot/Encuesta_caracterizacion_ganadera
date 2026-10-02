@@ -832,6 +832,47 @@ def _comparaciones_cruzadas() -> list[ComparacionCruzada]:
         # Cuadro4↔Cuadro5, así que esa comparación cruzada ya no se declara
         # aquí (antes sí, cuando "total" se rondeaba independiente y por
         # construcción coincidía).
+        # --- ganadero: Cuadro 1 vs Cuadro 3/7/8/9/10/11/12/13/14/15/16 ---
+        # "total_ganaderos" se reutiliza exacto de Cuadro 1 en estos 11
+        # cuadros (corregido 2026-10-02, a pedido del usuario - antes cada
+        # uno lo derivaba de sus propias categorías, con un residuo de 1 a
+        # 213 unidades frente a Cuadro 1, ver `cuadros/ganadero.py`).
+        *[
+            ComparacionCruzada(
+                f"ganadero: total_ganaderos (Cuadro 1 vs Cuadro {n})",
+                defs["ganadero_cuadro1"], "total_ganaderos",
+                defs[nombre_def], "total_ganaderos",
+            )
+            for n, nombre_def in [
+                (3, "ganadero_cuadro3_sexo"), (7, "ganadero_cuadro7_edad"),
+                (8, "ganadero_cuadro8_tenencia"), (9, "ganadero_cuadro9_comparte_lote"),
+                (10, "ganadero_cuadro10_lugar_residencia"), (11, "ganadero_cuadro11_atendio_encuesta"),
+                (12, "ganadero_cuadro12_sensor_epidemiologico"), (13, "ganadero_cuadro13_alerta_temprana"),
+                (14, "ganadero_cuadro14_notificar_ica"), (15, "ganadero_cuadro15_signos_clinicos"),
+                (16, "ganadero_cuadro16_universidad_area_andina"),
+            ]
+        ],
+        *[
+            ComparacionCruzada(
+                f"ganadero: total_ganaderos (Cuadro 1 vs Cuadro {n} - Ciclo 2)",
+                defs["ganadero_cuadro1_c2"], "total_ganaderos",
+                defs[nombre_def], "total_ganaderos",
+            )
+            for n, nombre_def in [
+                (3, "ganadero_cuadro3_sexo_c2"), (8, "ganadero_cuadro8_tenencia_c2"),
+                (9, "ganadero_cuadro9_comparte_lote_c2"), (10, "ganadero_cuadro10_lugar_residencia_c2"),
+                (11, "ganadero_cuadro11_atendio_encuesta_c2"), (12, "ganadero_cuadro12_sensor_epidemiologico_c2"),
+                (13, "ganadero_cuadro13_alerta_temprana_c2"), (14, "ganadero_cuadro14_notificar_ica_c2"),
+                (15, "ganadero_cuadro15_signos_clinicos_c2"),
+            ]
+        ],
+        ComparacionCruzada(
+            # "total_ganaderos2" (2do bloque de Cuadro 16) también reutiliza
+            # Cuadro 1 (mismo total, repetido - ver docstring del módulo).
+            "ganadero: total_ganaderos2 (Cuadro 1 vs Cuadro 16, bloque interés)",
+            defs["ganadero_cuadro1"], "total_ganaderos",
+            defs["ganadero_cuadro16_universidad_area_andina"], "total_ganaderos2",
+        ),
         ComparacionCruzada(
             # sist_total se reutiliza exacto de Cuadro 3 (ver
             # `generar_sistema_productivo`) - deben coincidir siempre.

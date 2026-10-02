@@ -169,12 +169,35 @@ from __future__ import annotations
 import pandas as pd
 
 from .. import agregador, base_maestra_c1, base_maestra_c2, config
+from . import comun
 
 _RUTA_BASE_MAESTRA = {"C1": base_maestra_c1.RUTA_BASE_MAESTRA_C1, "C2": base_maestra_c2.RUTA_BASE_MAESTRA_C2}
 
 
 def _leer_maestra(ciclo: str) -> pd.DataFrame:
     return pd.read_parquet(_RUTA_BASE_MAESTRA[ciclo])
+
+
+def _total_ganaderos_cuadro1(ciclo: str) -> pd.Series:
+    """`total_ganaderos` ya calculado en Cuadro 1 (`comun.generar_cuadro1` -
+    mismo `peso_ganadero.sum()` agrupado por municipio) - se reutiliza EXACTO
+    en todos los cuadros de este módulo que reportan "Total de ganaderos",
+    en vez de dejar que cada uno lo derive (o redondee) por su cuenta -
+    corregido 2026-10-02 (a pedido del usuario): se detectó que 11 cuadros
+    (3,7,8,9,10,11,12,13,14,15,16) daban cada uno un "Total de ganaderos"
+    ligeramente distinto (residuos de 1 a 213 unidades, 0.0002%-0.033%)
+    frente al de Cuadro 1, por derivarlo cada uno de sus propias categorías
+    en vez de reutilizar el mismo valor. Las categorías de cada cuadro se
+    ajustan DESPUÉS con `agregador.forzar_suma_exacta` para sumar exacto
+    este total reutilizado - se logran ambas cosas a la vez (coincidencia
+    con Cuadro 1 Y consistencia interna fila a fila), mismo criterio ya
+    aplicado en `cuadros/inventario.py` y `cuadros/predio_ganadero.py`.
+    Devuelve una `Series` en el mismo orden Nacional->Departamento->
+    Municipio que cualquier otra tabla de `agregador.generar_cuadro` (mismo
+    catálogo territorial) - alinear con `.reset_index(drop=True)` antes de
+    asignar."""
+    tabla1, _ = comun.generar_cuadro1(ciclo=ciclo)
+    return tabla1["total_ganaderos"].reset_index(drop=True)
 
 
 def generar_cuadro3(ciclo: str = "C1") -> tuple[pd.DataFrame, list[str]]:
@@ -194,10 +217,14 @@ def generar_cuadro3(ciclo: str = "C1") -> tuple[pd.DataFrame, list[str]]:
     agg["natural_total"] = agg["mujeres"] + agg["hombres"]
 
     value_cols = ["total_ganaderos", "natural_total", "mujeres", "hombres", "juridica"]
-    # "natural_total" primero: "total_ganaderos" depende de él, ver docstring
-    # de `agregador.generar_cuadro`.
-    columnas_totales = {"natural_total": ["mujeres", "hombres"], "total_ganaderos": ["natural_total", "juridica"]}
+    # "total_ganaderos" se reutiliza de Cuadro 1 (no se declara acá) -
+    # "natural_total" sigue derivado de mujeres+hombres, y se ajusta DESPUÉS
+    # para que natural_total+juridica sume exacto el total reutilizado - ver
+    # `_total_ganaderos_cuadro1`.
+    columnas_totales = {"natural_total": ["mujeres", "hombres"]}
     tabla = agregador.generar_cuadro(agg, value_cols, columnas_totales=columnas_totales)
+    tabla["total_ganaderos"] = _total_ganaderos_cuadro1(ciclo)
+    agregador.forzar_suma_exacta(tabla, "total_ganaderos", ["natural_total", "juridica"])
     return tabla, value_cols
 
 
@@ -293,10 +320,11 @@ def generar_cuadro8(ciclo: str = "C1") -> tuple[pd.DataFrame, list[str]]:
     for c in columnas_nuevas:
         agg[c] = agg[c].fillna(0.0)
 
-    # Consistencia horizontal en las 2 direcciones (ver docstring del módulo):
-    # total_ganaderos = suma de los 3 "_total" de género; cada tenencia
+    # Consistencia horizontal (ver docstring del módulo): cada tenencia
     # "general" = suma de esa misma tenencia en los 3 bloques de género.
-    columnas_totales["total_ganaderos"] = [f"{p}_total" for p, _ in _GENERO_PREFIJO]
+    # "total_ganaderos" se reutiliza de Cuadro 1 (no se declara acá) - se
+    # ajusta DESPUÉS para que los 3 "_total" de género sumen exacto ese
+    # total, ver `_total_ganaderos_cuadro1`.
     for tenencia in TENENCIA_ORDEN:
         slug = _TENENCIA_SLUG[tenencia]
         columnas_totales[slug] = [f"{p}_{slug}" for p, _ in _GENERO_PREFIJO]
@@ -308,6 +336,8 @@ def generar_cuadro8(ciclo: str = "C1") -> tuple[pd.DataFrame, list[str]]:
         + [f"j_total"] + [f"j_{_TENENCIA_SLUG[t]}" for t in TENENCIA_ORDEN]
     )
     tabla = agregador.generar_cuadro(agg, value_cols, columnas_totales=columnas_totales)
+    tabla["total_ganaderos"] = _total_ganaderos_cuadro1(ciclo)
+    agregador.forzar_suma_exacta(tabla, "total_ganaderos", [f"{p}_total" for p, _ in _GENERO_PREFIJO])
     return tabla, value_cols
 
 
@@ -337,20 +367,20 @@ def _generar_cuadro_si_no_por_genero(columna_raw: str, ciclo: str = "C1") -> tup
     for c in columnas_nuevas:
         agg[c] = agg[c].fillna(0.0)
 
-    # Consistencia horizontal en las 2 direcciones - ORDEN importa (ver
-    # docstring de `agregador.generar_cuadro`): "general_si"/"general_no"
-    # deben derivarse PRIMERO (de sus 3 bloques de género), porque
-    # "total_ganaderos" depende del valor YA derivado de esos dos, no del
-    # independientemente redondeado.
+    # Consistencia horizontal - "general_si"/"general_no" derivados de sus 3
+    # bloques de género. "total_ganaderos" se reutiliza de Cuadro 1 (no se
+    # declara acá) - se ajusta DESPUÉS para que general_si+general_no sumen
+    # exacto ese total, ver `_total_ganaderos_cuadro1`.
     columnas_totales["general_si"] = [f"{p}_si" for p, _ in _GENERO_PREFIJO]
     columnas_totales["general_no"] = [f"{p}_no" for p, _ in _GENERO_PREFIJO]
-    columnas_totales["total_ganaderos"] = ["general_si", "general_no"]
 
     value_cols = (
         ["total_ganaderos", "general_si", "general_no"]
         + [f"{p}_{s}" for p, _ in _GENERO_PREFIJO for s in ("si", "no")]
     )
     tabla = agregador.generar_cuadro(agg, value_cols, columnas_totales=columnas_totales)
+    tabla["total_ganaderos"] = _total_ganaderos_cuadro1(ciclo)
+    agregador.forzar_suma_exacta(tabla, "total_ganaderos", ["general_si", "general_no"])
     return tabla, value_cols
 
 
@@ -398,18 +428,19 @@ def generar_cuadro10(ciclo: str = "C1") -> tuple[pd.DataFrame, list[str]]:
     for c in columnas_nuevas:
         agg[c] = agg[c].fillna(0.0)
 
-    # Consistencia horizontal en las 2 direcciones (h_total/m_total/j_total ya
-    # quedaron declarados arriba, antes que total_ganaderos - orden correcto,
-    # ver docstring de `agregador.generar_cuadro`).
+    # gen_predio/gen_otro derivados de sus 3 bloques de género.
+    # "total_ganaderos" se reutiliza de Cuadro 1 (no se declara acá) - se
+    # ajusta DESPUÉS para que gen_predio+gen_otro sumen exacto ese total.
     columnas_totales_10["gen_predio"] = [f"{p}_predio" for p, _ in _GENERO_PREFIJO]
     columnas_totales_10["gen_otro"] = [f"{p}_otro" for p, _ in _GENERO_PREFIJO]
-    columnas_totales_10["total_ganaderos"] = ["gen_predio", "gen_otro"]
 
     value_cols = (
         ["total_ganaderos", "gen_predio", "gen_otro"]
         + [f"{p}_{s}" for p, _ in _GENERO_PREFIJO for s in ("total", "predio", "otro")]
     )
     tabla = agregador.generar_cuadro(agg, value_cols, columnas_totales=columnas_totales_10)
+    tabla["total_ganaderos"] = _total_ganaderos_cuadro1(ciclo)
+    agregador.forzar_suma_exacta(tabla, "total_ganaderos", ["gen_predio", "gen_otro"])
     return tabla, value_cols
 
 
@@ -447,8 +478,12 @@ def _generar_cuadro_si_no_general(
         agg[c] = agg[c].fillna(0.0)
 
     value_cols = ["total_ganaderos", "si", "no", "no_sabe"]
-    columnas_totales = {"total_ganaderos": ["si", "no", "no_sabe"]}
-    tabla = agregador.generar_cuadro(agg, value_cols, columnas_totales=columnas_totales)
+    # "total_ganaderos" se reutiliza de Cuadro 1 (no se declara
+    # `columnas_totales`) - se ajusta DESPUÉS para que si+no+no_sabe sumen
+    # exacto ese total, ver `_total_ganaderos_cuadro1`.
+    tabla = agregador.generar_cuadro(agg, value_cols)
+    tabla["total_ganaderos"] = _total_ganaderos_cuadro1(ciclo)
+    agregador.forzar_suma_exacta(tabla, "total_ganaderos", ["si", "no", "no_sabe"])
     return tabla, value_cols
 
 
@@ -503,7 +538,15 @@ def generar_cuadro16() -> tuple[pd.DataFrame, list[str]]:
         columnas_totales[col_total] = [col_si, col_no]
 
     value_cols = ["total_ganaderos", "conoce_si", "conoce_no", "total_ganaderos2", "interes_si", "interes_no"]
-    tabla = agregador.generar_cuadro(agg, value_cols, columnas_totales=columnas_totales)
+    # "total_ganaderos"/"total_ganaderos2" se reutilizan de Cuadro 1 (mismo
+    # valor repetido en los 2 bloques, no se declaran `columnas_totales`) -
+    # se ajustan DESPUÉS para que cada par si/no sume exacto ese total.
+    tabla = agregador.generar_cuadro(agg, value_cols)
+    total_c1 = _total_ganaderos_cuadro1("C1")
+    tabla["total_ganaderos"] = total_c1
+    tabla["total_ganaderos2"] = total_c1
+    agregador.forzar_suma_exacta(tabla, "total_ganaderos", ["conoce_si", "conoce_no"])
+    agregador.forzar_suma_exacta(tabla, "total_ganaderos2", ["interes_si", "interes_no"])
     return tabla, value_cols
 
 
@@ -556,17 +599,12 @@ def generar_cuadro7() -> tuple[pd.DataFrame, list[str]]:
         columnas_totales[col_total_bloque] = cols_rango
         value_cols += [col_total_bloque] + cols_rango
 
-    # "total_ganaderos" (columna E) SÍ se deriva como suma de los 3 bloques
-    # de género - corregido 2026-09-25 (el usuario detectó el residuo):
-    # a diferencia de Cuadro 6 (delitos, categorías NO excluyentes, ahí sí
-    # está justificado no forzar la suma), acá Mujer/Hombre/Persona Jurídica
-    # SÍ son excluyentes y exhaustivas - la versión anterior dejaba
-    # "total_ganaderos" independiente "para coincidir con Cuadro 1/3", pero
-    # esa razón no aplicaba: Cuadro 3 (mismo desglose de género, este mismo
-    # libro) YA deriva su total igual que acá, y tampoco se valida cruzado
-    # contra Cuadro 1 - dejar Cuadro 7 distinto era una inconsistencia, no
-    # una decisión real. Con esto, mujeres+hombres+jurídica = total_ganaderos
-    # exacto, igual que Cuadro 3.
-    columnas_totales["total_ganaderos"] = [f"{p}_total" for p, _ in _GENERO_PREFIJO_CUADRO7]
+    # "total_ganaderos" (columna E) se reutiliza de Cuadro 1 (corregido
+    # 2026-10-02 - antes, 2026-09-25, se derivaba como suma de los 3 bloques
+    # de género, lo que lo hacía coincidir INTERNAMENTE pero no con Cuadro 1,
+    # ver `_total_ganaderos_cuadro1`) - se ajusta DESPUÉS para que
+    # mujeres+hombres+jurídica sumen exacto ese total, logrando ambas cosas.
     tabla = agregador.generar_cuadro(agg, value_cols, columnas_totales=columnas_totales)
+    tabla["total_ganaderos"] = _total_ganaderos_cuadro1("C1")
+    agregador.forzar_suma_exacta(tabla, "total_ganaderos", [f"{p}_total" for p, _ in _GENERO_PREFIJO_CUADRO7])
     return tabla, value_cols

@@ -175,22 +175,63 @@ def generar_sistema_productivo() -> pd.DataFrame:
     """Cuadro 6: cantidad de bovinos según el sistema productivo implementado
     en el predio (pregunta 11/12 del formulario, columna R11 en la base cruda
     -ver nota de desfase en config.RENOMBRE_PREGUNTAS-).
+
+    "sist_total" se reutiliza EXACTO de Cuadro 3 (`generar("bovinos")`) en vez
+    de recalcularse independiente - mismo criterio ya usado en
+    `generar_por_orientacion` (Cuadro 4/5) para garantizar coincidencia
+    exacta con Cuadro 3 por construcción. Antes "sist_total" se declaraba
+    `columnas_totales` (derivado de sumar los 4 sistemas productivos, cada
+    uno redondeado independiente por municipio) - eso dejaba un residuo de
+    ~18 animales (0.0001% nacional) frente a Cuadro 3/4, detectado por el
+    usuario 2026-09-25 al comparar el Excel.
+
+    A pedido del usuario (2026-09-25), la suma de los 4 sistemas SÍ debe
+    coincidir EXACTO con "sist_total" en los 3 niveles (nacional, depto,
+    municipio) - a diferencia del trade-off aceptado en otros cuadros (ver
+    `cuadros/ganadero_historico.py`), acá SÍ se puede lograr sin sacrificar
+    la coincidencia con Cuadro 3: el residuo de redondeo (~18 animales a
+    nivel nacional) se absorbe en el sistema MÁS GRANDE DE CADA MUNICIPIO
+    (no siempre "Pastoreo mejorado" - primer intento, revertido: aunque es
+    el sistema más grande a nivel NACIONAL, en 7 municipios pequeños domina
+    otro sistema localmente, y fijar siempre "Pastoreo mejorado" ahí daba
+    valores NEGATIVOS, ej. -2 - inaceptable en un cuadro publicado).
+    Departamento/Nacional se recalculan DESPUÉS como suma de los municipios
+    ya ajustados (mismo principio de `agregador.py`: redondear/ajustar una
+    sola vez, al nivel más fino, y sumar hacia arriba) - así se preserva la
+    consistencia vertical automáticamente.
     """
     columnas_inv = preparar_base_c1.columnas_inventario("bovinos")
     df = _leer_maestra_c1()  # ya calibrado y renombrado - ver base_maestra_inventario_c1.py
 
     out = df[["CODIGO_MUNICIPIO"]].copy()
     total_bov = _total_animales(df, columnas_inv)
-    out["sist_total"] = total_bov
     for sistema in SISTEMA_PRODUCTIVO_ORDEN:
         out[f"sist_{_SISTEMA_SLUG[sistema]}"] = total_bov.where(df["sistemaproductivo"] == sistema, 0.0)
 
-    value_cols_ = ["sist_total"] + [f"sist_{_SISTEMA_SLUG[s]}" for s in SISTEMA_PRODUCTIVO_ORDEN]
-    # sist_total = suma de los 4 sistemas (sistemaproductivo no tiene nulos ni
-    # categorías fuera de esas 4 - verificado) - consistencia horizontal, ver
-    # `agregador.generar_cuadro`.
-    columnas_totales = {"sist_total": [f"sist_{_SISTEMA_SLUG[s]}" for s in SISTEMA_PRODUCTIVO_ORDEN]}
-    return agregador.generar_cuadro(out, value_cols_, columnas_totales=columnas_totales)
+    cols_sistemas = [f"sist_{_SISTEMA_SLUG[s]}" for s in SISTEMA_PRODUCTIVO_ORDEN]
+    tabla = agregador.generar_cuadro(out, cols_sistemas)
+
+    tabla_total = generar("bovinos", ciclo="C1")
+    tabla["sist_total"] = tabla_total["total_total"].reset_index(drop=True)
+
+    es_municipio = tabla["NIVEL"] == agregador.NIVEL_MUNICIPIO
+    muni = tabla.loc[es_municipio, ["COD_DEPARTAMENTO", "sist_total"] + cols_sistemas].copy()
+    suma_4 = muni[cols_sistemas].sum(axis=1)
+    idx_max = muni[cols_sistemas].to_numpy().argmax(axis=1)
+    for i, col in enumerate(cols_sistemas):
+        filtro = idx_max == i
+        muni.loc[filtro, col] = muni.loc[filtro, "sist_total"] - (suma_4[filtro] - muni.loc[filtro, col])
+    tabla.loc[es_municipio, cols_sistemas] = muni[cols_sistemas]
+
+    dep_agg = muni.groupby("COD_DEPARTAMENTO")[cols_sistemas].sum()
+    es_depto = tabla["NIVEL"] == agregador.NIVEL_DEPARTAMENTO
+    for col in cols_sistemas:
+        tabla.loc[es_depto, col] = tabla.loc[es_depto, "COD_DEPARTAMENTO"].map(dep_agg[col])
+        tabla.loc[tabla["NIVEL"] == agregador.NIVEL_NACIONAL, col] = muni[col].sum()
+
+    value_cols_ = ["sist_total"] + cols_sistemas
+    claves = ["NIVEL", "COD_DEPARTAMENTO", "DEPARTAMENTO", "CODIGO_MUNICIPIO", "MUNICIPIO"]
+    return tabla[claves + value_cols_]
 
 
 def value_cols_sistema_productivo() -> list[str]:
@@ -281,6 +322,44 @@ def _columnas_totales_bloque_sexo() -> dict[str, list[str]]:
     }
     for c in COLUMNAS_TOTAL:
         mapa[f"total_{c}"] = [f"macho_{c}", f"hembra_coarse_{c}"]
+    return mapa
+
+
+def value_cols_por_orientacion() -> list[str]:
+    """Lista ESTÁTICA de columnas de Cuadro 4/5 (`generar_por_orientacion`),
+    sin tocar datos - mismo orden con el que se arma `columnas_finales` ahí
+    (bloque "Total" primero, luego un bloque de 21 columnas por cada
+    orientación, en `ORIENTACIONES_COLUMNA`). Para uso del validador
+    estructural (`validacion_estructura_cuadros.py`), que necesita los
+    nombres de columna sin recalcular todo el cuadro."""
+    total_cols = ["total_total"] + [f"total_{c}" for c in COLUMNAS_TOTAL]
+    cols = [f"blk_total__{c}" for c in total_cols]
+    cols_sexo = _columnas_bloque_sexo("")
+    for orientacion in ORIENTACIONES_COLUMNA:
+        slug = _ORIENTACION_SLUG[orientacion]
+        cols += [f"blk_{slug}__{c}" for c in cols_sexo]
+    return cols
+
+
+def columnas_totales_por_orientacion() -> dict[str, list[str]]:
+    """`columnas_totales` de Cuadro 4/5 para el validador: dentro de cada
+    bloque de orientación, `total_X = macho_X + hembra_coarse_X` (mismo
+    `_columnas_totales_bloque_sexo()` que usa `agregador.generar_cuadro` para
+    cada orientación en `generar_por_orientacion`). El bloque "blk_total__*"
+    NO se declara acá (se reutiliza tal cual de Cuadro 3, no se deriva - ver
+    docstring de `generar_por_orientacion`). "Doble propósito" TAMPOCO se
+    declara: ahí se absorbe a propósito el residuo de redondeo entre el
+    bloque "Total" (fijo, = Cuadro 3) y la suma de las 6 orientaciones (ver
+    docstring de `generar_por_orientacion`) - su `total_X` NO es exactamente
+    `macho_X+hembra_coarse_X` por diseño, así que no se valida ahí."""
+    mapa: dict[str, list[str]] = {}
+    base = _columnas_totales_bloque_sexo()
+    for orientacion in ORIENTACIONES_COLUMNA:
+        if orientacion == "Doble propósito":
+            continue
+        slug = _ORIENTACION_SLUG[orientacion]
+        for destino, fuentes in base.items():
+            mapa[f"blk_{slug}__{destino}"] = [f"blk_{slug}__{f}" for f in fuentes]
     return mapa
 
 

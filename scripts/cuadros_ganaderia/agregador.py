@@ -151,3 +151,51 @@ def generar_cuadro(
 
     resultado = pd.concat([nac_full, depmun], ignore_index=True)
     return resultado.reset_index(drop=True)
+
+
+def forzar_suma_exacta(tabla: pd.DataFrame, col_total: str, cols_partes: list[str]) -> None:
+    """Ajusta IN-PLACE las columnas en `cols_partes` (de una `tabla` que ya
+    pasó por `generar_cuadro`) para que su suma sea EXACTA a `tabla[col_total]`
+    en cada fila (Nacional, cada Departamento, cada Municipio) - sin tocar
+    `col_total` ni introducir valores negativos.
+
+    Para cuándo usar esto: cuando `cols_partes` es una partición MUTUAMENTE
+    EXCLUYENTE y EXHAUSTIVA del universo de `col_total` (todo caso cae en
+    exactamente una categoría), pero `col_total` necesita quedar como un
+    valor INDEPENDIENTE (ej. porque coincide con el mismo dato ya reportado,
+    redondeado por separado, en otro cuadro - ver `columnas_totales` en
+    `generar_cuadro` para el caso contrario, cuando SÍ conviene derivar
+    `col_total` de sus componentes). Sin este ajuste, cada columna de
+    `cols_partes` se redondeó de forma independiente y su suma puede quedar a
+    unas pocas unidades de `col_total` (residuo de redondeo, no un error de
+    datos - confirmado repetidas veces con datos reales de este proyecto,
+    hasta ~0.4% en casos con muchas categorías pequeñas).
+
+    Mecanismo: el residuo se absorbe en la categoría MÁS GRANDE DE CADA FILA
+    (no siempre la misma columna a nivel nacional - en universos pequeños,
+    como un municipio chico, puede dominar localmente una categoría distinta
+    a la que domina a nivel nacional; fijar siempre la misma columna puede
+    dar valores negativos ahí, ver docstring de
+    `cuadros/inventario.generar_sistema_productivo`, donde se detectó este
+    caso con datos reales). El ajuste se hace a nivel Municipio (el nivel más
+    fino, mismo principio de "REDONDEO" de este módulo) y Departamento/
+    Nacional se recalculan DESPUÉS como suma de esos municipios ya
+    ajustados - como `col_total` y cada `cols_partes` YA eran, cada uno por
+    separado, verticalmente consistentes (nacional = suma deptos = suma
+    municipios, garantizado por `generar_cuadro`), el resultado del ajuste
+    también lo es automáticamente (es una combinación lineal de 2 cantidades
+    que ya lo son), sin necesidad de ningún paso adicional."""
+    es_municipio = tabla["NIVEL"] == NIVEL_MUNICIPIO
+    muni = tabla.loc[es_municipio, ["COD_DEPARTAMENTO", col_total] + cols_partes].copy()
+    suma = muni[cols_partes].sum(axis=1)
+    idx_max = muni[cols_partes].to_numpy().argmax(axis=1)
+    for i, col in enumerate(cols_partes):
+        filtro = idx_max == i
+        muni.loc[filtro, col] = muni.loc[filtro, col_total] - (suma[filtro] - muni.loc[filtro, col])
+    tabla.loc[es_municipio, cols_partes] = muni[cols_partes]
+
+    dep_agg = muni.groupby("COD_DEPARTAMENTO")[cols_partes].sum()
+    es_depto = tabla["NIVEL"] == NIVEL_DEPARTAMENTO
+    for col in cols_partes:
+        tabla.loc[es_depto, col] = tabla.loc[es_depto, "COD_DEPARTAMENTO"].map(dep_agg[col])
+        tabla.loc[tabla["NIVEL"] == NIVEL_NACIONAL, col] = muni[col].sum()

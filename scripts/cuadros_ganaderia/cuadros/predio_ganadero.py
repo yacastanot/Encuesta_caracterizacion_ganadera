@@ -321,15 +321,22 @@ def generar_cuadro3(ciclo: str = "C1") -> tuple[pd.DataFrame, list[str]]:
         agg[c] = agg[c].fillna(0.0)
 
     value_cols = ["total_predios_ganaderos", "con_bovinos", "con_bufalinos", "con_ambos"]
-    # SIN `columnas_totales` para "total_predios_ganaderos": si se derivara
-    # como suma de sus 3 categorías (ya redondeadas), el redondeo de ESTE
-    # cuadro seguiría un camino distinto al de Cuadro 1 (que redondea
-    # `total_predios_ganaderos` directo, sin categorías) para la MISMA
-    # cantidad real - eso rompía la coincidencia entre cuadros (744.821 vs
-    # 744.832, detectado por el usuario). Se deja como valor independiente,
-    # redondeado exactamente igual que en Cuadro 1 (mismo groupby, mismo
-    # dato) - por construcción da el mismo entero en los dos cuadros.
+    # "total_predios_ganaderos" NO se declara `columnas_totales`: si se
+    # derivara directo como suma de sus 3 categorías (ya redondeadas), el
+    # redondeo de ESTE cuadro seguiría un camino distinto al de Cuadro 1 (que
+    # redondea "total_predios_ganaderos" directo, sin categorías) para la
+    # MISMA cantidad real - eso rompía la coincidencia entre cuadros (744.821
+    # vs 744.832, detectado por el usuario). En vez de eso, se deja
+    # "total_predios_ganaderos" como valor independiente (coincide exacto con
+    # Cuadro 1 por construcción) y se ajustan las 3 categorías DESPUÉS con
+    # `agregador.forzar_suma_exacta` para que sumen exacto ese mismo total -
+    # las 3 categorías SÍ son una partición mutuamente excluyente y
+    # exhaustiva (ver docstring del módulo), a diferencia de con_puras/
+    # con_cruces en Cuadro 18, así que acá SÍ debe cumplirse la suma (a
+    # pedido del usuario, 2026-10-02, tras detectar el residuo: +28 a nivel
+    # nacional, 0.0038%).
     tabla = agregador.generar_cuadro(agg, value_cols)
+    agregador.forzar_suma_exacta(tabla, "total_predios_ganaderos", ["con_bovinos", "con_bufalinos", "con_ambos"])
     return tabla, value_cols
 
 
@@ -365,11 +372,13 @@ def generar_cuadro4(ciclo: str = "C1") -> tuple[pd.DataFrame, list[str]]:
         agg[c] = agg[c].fillna(0.0)
 
     value_cols = ["total_predios_ganaderos"] + cols_orientacion
-    # SIN `columnas_totales` para "total_predios_ganaderos" - mismo criterio
-    # que Cuadro 3 (ver docstring del módulo): debe coincidir exacto con
-    # Cuadro 1/3, se redondea igual (valor independiente), no como suma de
-    # las 6 orientaciones.
+    # "total_predios_ganaderos" independiente (coincide con Cuadro 1/3), las
+    # 6 orientaciones se ajustan DESPUÉS para sumar exacto ese total - mismo
+    # criterio que Cuadro 3 (ver docstring del módulo y de
+    # `agregador.forzar_suma_exacta`); `orientacionhato` es exhaustiva y sin
+    # blancos (ver docstring del módulo), partición válida para esto.
     tabla = agregador.generar_cuadro(agg, value_cols)
+    agregador.forzar_suma_exacta(tabla, "total_predios_ganaderos", cols_orientacion)
     return tabla, value_cols
 
 
@@ -409,10 +418,12 @@ def generar_cuadro5() -> tuple[pd.DataFrame, list[str]]:
         agg[c] = agg[c].fillna(0.0)
 
     value_cols = ["total_predios_ganaderos"] + cols_clase
-    # SIN `columnas_totales` - mismo criterio que Cuadro 3/4: "total_predios_
-    # ganaderos" es independiente, coincide con Cuadro 1/3/4 (ver docstring
-    # del módulo).
+    # "total_predios_ganaderos" independiente (coincide con Cuadro 1/3/4),
+    # las 8 clases (partición exhaustiva de `canttrabaj`, sin nulos) se
+    # ajustan DESPUÉS para sumar exacto ese total - ver docstring del módulo
+    # y de `agregador.forzar_suma_exacta`.
     tabla = agregador.generar_cuadro(agg, value_cols)
+    agregador.forzar_suma_exacta(tabla, "total_predios_ganaderos", cols_clase)
     return tabla, value_cols
 
 
@@ -465,10 +476,20 @@ def generar_cuadro6() -> tuple[pd.DataFrame, list[str]]:
         columnas_totales[col_natural] = [col_h, col_m]
         columnas_totales[col_total] = [col_natural, col_j]
 
-    # SIN "total_predios_ganaderos" en `columnas_totales` (no se deriva como
-    # suma de los 4 bloques de sistema productivo) - mismo criterio que
-    # Cuadro 3/4/5, ver docstring del módulo.
+    # "total_predios_ganaderos" independiente (NO en `columnas_totales`,
+    # coincide con Cuadro 1/3/4/5) - los 4 "{sistema}_total" (partición
+    # exhaustiva de `sistemaproductivo`, sin nulos) se ajustan DESPUÉS para
+    # sumar exacto ese total, ver docstring del módulo y de
+    # `agregador.forzar_suma_exacta`. OJO: el sistema que absorbe el residuo
+    # en cada fila queda con su propio "{sistema}_natural"/"_h"/"_m"/"_j" ya
+    # NO exactamente consistente con su "{sistema}_total" ajustado (mismo
+    # tipo de trade-off ya aceptado en "Doble propósito" de Cuadro 4/5 del
+    # libro inventario) - no se puede satisfacer simultáneamente "Total =
+    # suma de los 4 sistemas" Y "cada sistema internamente consistente" con
+    # redondeo entero simple.
     tabla = agregador.generar_cuadro(agg, value_cols, columnas_totales=columnas_totales)
+    cols_sistema_total = [f"{_SISTEMA_SLUG[s]}_total" for s in SISTEMAS_PRODUCTIVOS_ORDEN]
+    agregador.forzar_suma_exacta(tabla, "total_predios_ganaderos", cols_sistema_total)
     return tabla, value_cols
 
 
@@ -523,12 +544,28 @@ def generar_cuadro7() -> tuple[pd.DataFrame, list[str]]:
             agg[col] = agg[col].fillna(0.0)
             value_cols.append(col)
 
-    # SIN `columnas_totales`: ni "total_predios_ganaderos" (bloque "Total") ni
-    # los 6 "{orientacion}_total" se derivan como suma de sus 4 columnas de
-    # sistema productivo - quedan como valores independientes, coincidiendo
-    # exacto con Cuadro 1/3/4/5/6 y Cuadro 4 respectivamente (ver docstring
-    # del módulo).
+    # "total_predios_ganaderos" (bloque "Total") y los 6 "{orientacion}_total"
+    # quedan como valores independientes (coinciden exacto con Cuadro
+    # 1/3/4/5/6 y Cuadro 4 respectivamente, ver docstring del módulo) - NO se
+    # declaran `columnas_totales`. En su lugar, se ajustan DESPUÉS con
+    # `agregador.forzar_suma_exacta` para que: (a) "total_predios_ganaderos"
+    # = suma de los 4 "total_{sistema}" (margen de sistema productivo), (b)
+    # "total_predios_ganaderos" = suma de los 6 "{orientacion}_total" (margen
+    # de orientación), y (c) cada "{orientacion}_total" = suma de sus 4
+    # columnas de sistema productivo (identidad interna de cada bloque) -
+    # `sistemaproductivo` y `orientacionhato` son particiones exhaustivas sin
+    # nulos (ver docstring del módulo), válidas para esto. Igual que en
+    # Cuadro 6, el bloque que absorbe el residuo en cada ajuste puede quedar
+    # con una pequeña inconsistencia interna propia - trade-off ya aceptado.
     tabla = agregador.generar_cuadro(agg, value_cols)
+    cols_sistema_total = [f"total_{_SISTEMA_SLUG[s]}" for s in SISTEMAS_PRODUCTIVOS_ORDEN]
+    agregador.forzar_suma_exacta(tabla, "total_predios_ganaderos", cols_sistema_total)
+    cols_orientacion_total = [f"{_ORIENTACION_SLUG[o]}_total" for o in ORIENTACIONES_ORDEN]
+    agregador.forzar_suma_exacta(tabla, "total_predios_ganaderos", cols_orientacion_total)
+    for orientacion in ORIENTACIONES_ORDEN:
+        oslug = _ORIENTACION_SLUG[orientacion]
+        cols_bloque = [f"{oslug}_{_SISTEMA_SLUG[s]}" for s in SISTEMAS_PRODUCTIVOS_ORDEN]
+        agregador.forzar_suma_exacta(tabla, f"{oslug}_total", cols_bloque)
     return tabla, value_cols
 
 
@@ -587,9 +624,20 @@ def generar_cuadro8() -> tuple[pd.DataFrame, list[str]]:
             agg[col] = agg[col].fillna(0.0)
             value_cols.append(col)
 
-    # SIN `columnas_totales` - mismo criterio que Cuadro 7 (ver docstring del
-    # módulo).
+    # Mismo criterio que Cuadro 7 (ver docstring del módulo y de
+    # `agregador.forzar_suma_exacta`): "total_predios_ganaderos" y los 3
+    # "{genero}_total" quedan independientes, ajustados después para que
+    # las sumas (margen de sistema, margen de género, y cada bloque de
+    # género internamente) coincidan exacto.
     tabla = agregador.generar_cuadro(agg, value_cols)
+    cols_sistema_total = [f"total_{_SISTEMA_SLUG[s]}" for s in SISTEMAS_PRODUCTIVOS_ORDEN]
+    agregador.forzar_suma_exacta(tabla, "total_predios_ganaderos", cols_sistema_total)
+    cols_genero_total = [f"{_GENERO_BLOQUE_SLUG[g]}_total" for g in _GENERO_BLOQUE_ORDEN]
+    agregador.forzar_suma_exacta(tabla, "total_predios_ganaderos", cols_genero_total)
+    for genero in _GENERO_BLOQUE_ORDEN:
+        gslug = _GENERO_BLOQUE_SLUG[genero]
+        cols_bloque = [f"{gslug}_{_SISTEMA_SLUG[s]}" for s in SISTEMAS_PRODUCTIVOS_ORDEN]
+        agregador.forzar_suma_exacta(tabla, f"{gslug}_total", cols_bloque)
     return tabla, value_cols
 
 
@@ -637,11 +685,19 @@ def generar_cuadro9(ciclo: str = "C1") -> tuple[pd.DataFrame, list[str]]:
             agg[col] = agg[col].fillna(0.0)
             value_cols.append(col)
 
-    # SIN `columnas_totales`: ni "total_predios_ganaderos" ni los 3
-    # "{genero}_total" se derivan como suma de sus 6 columnas de orientación -
-    # quedan independientes, coincidiendo exacto con Cuadro 1/.../8 y Cuadro 8
-    # respectivamente (ver docstring del módulo).
+    # "total_predios_ganaderos" y los 3 "{genero}_total" quedan
+    # independientes (coinciden exacto con Cuadro 1/.../8 y Cuadro 8
+    # respectivamente, ver docstring del módulo), ajustados después para que
+    # las sumas coincidan exacto (margen de género, y cada bloque
+    # internamente con sus 6 orientaciones) - ver docstring de
+    # `agregador.forzar_suma_exacta`.
     tabla = agregador.generar_cuadro(agg, value_cols)
+    cols_genero_total = [f"{_GENERO_BLOQUE_SLUG[g]}_total" for g in _GENERO_ORDEN_CUADRO9]
+    agregador.forzar_suma_exacta(tabla, "total_predios_ganaderos", cols_genero_total)
+    for genero in _GENERO_ORDEN_CUADRO9:
+        gslug = _GENERO_BLOQUE_SLUG[genero]
+        cols_bloque = [f"{gslug}_{_ORIENTACION_SLUG[o]}" for o in ORIENTACIONES_ORDEN]
+        agregador.forzar_suma_exacta(tabla, f"{gslug}_total", cols_bloque)
     return tabla, value_cols
 
 
@@ -680,9 +736,18 @@ def generar_cuadro10() -> tuple[pd.DataFrame, list[str]]:
             agg[col] = agg[col].fillna(0.0)
             value_cols.append(col)
 
-    # SIN `columnas_totales` - mismo criterio que Cuadro 7/8/9 (ver docstring
-    # del módulo).
+    # Mismo criterio que Cuadro 7/8/9 (ver docstring del módulo y de
+    # `agregador.forzar_suma_exacta`): "total_predios_ganaderos" independiente
+    # (coincide con Cuadro 1/.../9), ajustado después para que las 6
+    # "{tenencia}_total" sumen exacto ese total (margen de tenencia), y cada
+    # bloque de tenencia internamente con sus 4 sistemas productivos.
     tabla = agregador.generar_cuadro(agg, value_cols)
+    cols_tenencia_total = [f"{_TENENCIA_SLUG[t]}_total" for t in TENENCIA_ORDEN]
+    agregador.forzar_suma_exacta(tabla, "total_predios_ganaderos", cols_tenencia_total)
+    for tenencia in TENENCIA_ORDEN:
+        tslug = _TENENCIA_SLUG[tenencia]
+        cols_bloque = [f"{tslug}_{_SISTEMA_SLUG[s]}" for s in SISTEMAS_PRODUCTIVOS_ORDEN]
+        agregador.forzar_suma_exacta(tabla, f"{tslug}_total", cols_bloque)
     return tabla, value_cols
 
 
@@ -710,9 +775,11 @@ def generar_cuadro11(ciclo: str = "C1") -> tuple[pd.DataFrame, list[str]]:
         agg[c] = agg[c].fillna(0.0)
 
     value_cols = ["total_predios_ganaderos"] + cols_tenencia
-    # SIN `columnas_totales` - "total_predios_ganaderos" y cada columna de
-    # tenencia son valores independientes (ver docstring del módulo).
+    # "total_predios_ganaderos" independiente (ver docstring del módulo),
+    # ajustado después para que las 6 columnas de tenencia (partición
+    # exhaustiva de `PREDIO_CARGO`, sin nulos) sumen exacto ese total.
     tabla = agregador.generar_cuadro(agg, value_cols)
+    agregador.forzar_suma_exacta(tabla, "total_predios_ganaderos", cols_tenencia)
     return tabla, value_cols
 
 
@@ -754,9 +821,18 @@ def generar_cuadro12(ciclo: str = "C1") -> tuple[pd.DataFrame, list[str]]:
             agg[col] = agg[col].fillna(0.0)
             value_cols.append(col)
 
-    # SIN `columnas_totales` - mismo criterio que Cuadro 7/8/9/10 (ver
-    # docstring del módulo).
+    # Mismo criterio que Cuadro 7/8/9/10 (ver docstring del módulo y de
+    # `agregador.forzar_suma_exacta`): "total_predios_ganaderos" independiente
+    # (coincide con Cuadro 1/.../11), ajustado después para que las 6
+    # "{tenencia}_total" sumen exacto ese total, y cada bloque de tenencia
+    # internamente con sus 6 orientaciones.
     tabla = agregador.generar_cuadro(agg, value_cols)
+    cols_tenencia_total = [f"{_TENENCIA_SLUG[t]}_total" for t in TENENCIA_ORDEN]
+    agregador.forzar_suma_exacta(tabla, "total_predios_ganaderos", cols_tenencia_total)
+    for tenencia in TENENCIA_ORDEN:
+        tslug = _TENENCIA_SLUG[tenencia]
+        cols_bloque = [f"{tslug}_{_ORIENTACION_SLUG[o]}" for o in ORIENTACIONES_ORDEN]
+        agregador.forzar_suma_exacta(tabla, f"{tslug}_total", cols_bloque)
     return tabla, value_cols
 
 
@@ -793,12 +869,14 @@ def generar_cuadro13() -> tuple[pd.DataFrame, list[str]]:
         agg[c] = agg[c].fillna(0.0)
 
     value_cols = ["total_predios_ganaderos"] + cols_rango
-    # SIN `columnas_totales` - "total_predios_ganaderos" es independiente,
-    # coincide con Cuadro 1/.../12 (ver docstring del módulo); los 8 rangos sí
-    # son exhaustivos y mutuamente excluyentes por construcción (partición
-    # completa de `menores18`, incluyendo nulos), pero no se fuerza la suma
-    # vía `columnas_totales` para no romper esa coincidencia entre cuadros.
+    # "total_predios_ganaderos" independiente, coincide con Cuadro 1/.../12
+    # (ver docstring del módulo); los 8 rangos SÍ son exhaustivos y
+    # mutuamente excluyentes por construcción (partición completa de
+    # `menores18`, incluyendo nulos) - se ajustan DESPUÉS con
+    # `agregador.forzar_suma_exacta` para que sumen exacto ese total, sin
+    # romper la coincidencia con Cuadro 1/.../12.
     tabla = agregador.generar_cuadro(agg, value_cols)
+    agregador.forzar_suma_exacta(tabla, "total_predios_ganaderos", cols_rango)
     return tabla, value_cols
 
 
@@ -834,8 +912,15 @@ def generar_cuadro14() -> tuple[pd.DataFrame, list[str]]:
         agg[c] = agg[c].fillna(0.0)
 
     value_cols = ["total_predios_ganaderos"] + cols_rango
-    # SIN `columnas_totales` - mismo criterio que el resto del libro.
+    # "total_predios_ganaderos" independiente (coincide con Cuadro 1/.../13).
+    # "con_colmenas" NO participa de la suma (es un marcador aparte, no una
+    # categoría de esta partición - ver docstring del módulo); los 6 rangos
+    # de cantidad de colmenas SÍ son una partición exhaustiva de TODOS los
+    # predios-ganadero (ver docstring del módulo) y se ajustan DESPUÉS con
+    # `agregador.forzar_suma_exacta` para sumar exacto el total.
     tabla = agregador.generar_cuadro(agg, value_cols)
+    cols_rango_solo = [c for c in cols_rango if c != "con_colmenas"]
+    agregador.forzar_suma_exacta(tabla, "total_predios_ganaderos", cols_rango_solo)
     return tabla, value_cols
 
 
@@ -976,17 +1061,19 @@ def generar_cuadro17() -> tuple[pd.DataFrame, list[str]]:
     """Cuadro 17 - ver docstring del módulo. Total + Sí/No/No sabe-no
     responde (área protegida). Solo Ciclo 2.
 
-    SIN `columnas_totales` (corregido 2026-09-24, Fase 8): la versión
-    original SÍ derivaba "total_predios_ganaderos" como suma de sí/no/no_sabe
-    - único cuadro nuevo de Ciclo 2 que rompía el principio del resto del
-    proyecto (Cuadro 1/15/16/18/19: el total se redondea SIEMPRE
-    independiente, nunca como derivado de sus categorías, para que coincida
-    exacto entre cuadros - ver docstring de `cuadros/comun.py`). Detectado
-    por la comparación cruzada nueva del validador estructural
-    (`validacion_estructura_cuadros._comparaciones_cruzadas`): Cuadro 17 daba
-    728.546 nacional vs. 728.576 en Cuadro 1/15/16/18/19 - una diferencia de
-    30, resultado exclusivamente de que si+no+no_sabe (redondeados cada uno
-    por municipio) no coincide siempre con el total real sumado directo."""
+    "total_predios_ganaderos" independiente, NUNCA derivado vía
+    `columnas_totales` (corregido 2026-09-24, Fase 8: la versión original SÍ
+    lo derivaba como suma de sí/no/no_sabe - único cuadro nuevo de Ciclo 2
+    que rompía el principio del resto del proyecto de que el total coincida
+    exacto entre cuadros, ver docstring de `cuadros/comun.py`. Detectado por
+    el validador: 728.546 vs. 728.576 en Cuadro 1/15/16/18/19, dif 30).
+
+    A partir de 2026-10-02 (a pedido del usuario), sí/no/no_sabe (partición
+    exhaustiva y excluyente de una pregunta de única respuesta) se ajustan
+    DESPUÉS con `agregador.forzar_suma_exacta` para sumar exacto ese mismo
+    total - se logran AMBAS cosas a la vez (coincidencia con Cuadro 1 Y
+    consistencia interna fila a fila), sin el trade-off de la corrección
+    anterior."""
     maestra = _leer_maestra("C2")
 
     agg = maestra.groupby("CODIGO_MUNICIPIO", as_index=False).agg(
@@ -1010,6 +1097,7 @@ def generar_cuadro17() -> tuple[pd.DataFrame, list[str]]:
 
     value_cols = ["total_predios_ganaderos", "si", "no", "no_sabe"]
     tabla = agregador.generar_cuadro(agg, value_cols)
+    agregador.forzar_suma_exacta(tabla, "total_predios_ganaderos", ["si", "no", "no_sabe"])
     return tabla, value_cols
 
 

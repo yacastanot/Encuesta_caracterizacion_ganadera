@@ -28,12 +28,29 @@ Para cada bloque (ciclo "actual" vs. ciclo "referencia"), por municipio:
    los `IDENT_GANADERO` que SÍ estaban en la referencia.
 
 "nuevos" + "se mantienen" = "Total" es una partición exacta del ciclo actual
-(todo ganadero actual es nuevo O se mantiene, nunca ambos) - aun así NO se
-declara como `columnas_totales` (mismo criterio que el resto del proyecto):
-"Total de ganaderos en el ciclo" de los bloques 2025 debe coincidir EXACTO
-con el "Total ganaderos" de Cuadro 1/3 de este mismo libro (ambos se calculan
-igual, desde la misma `base_maestra_c1`/`_c2`, redondeados de forma
-independiente) - derivarlo de nuevos+mantienen rompería esa coincidencia.
+(todo ganadero actual es nuevo O se mantiene, nunca ambos, "salieron" es una
+cantidad del ciclo de REFERENCIA que no forma parte del total actual) - SÍ
+se declara como `columnas_totales` (corregido 2026-09-25, el usuario detectó
+el residuo de redondeo independiente: una versión anterior dejaba "total"
+independiente "para coincidir con Cuadro 1/3", pero esa razón no aplicaba -
+mismo criterio ya corregido en Cuadro 7, ver `cuadros/ganadero.py`). Esto
+aplica a los bloques calculados (2025-C1/2025-C2); los bloques 2024
+copiados del libro publicado (ver más abajo) usan el "Total" tal cual viene
+publicado, sin recalcularlo de sus componentes.
+
+TRADEOFF ACEPTADO (2026-09-25, decisión del usuario): al derivar "total" de
+nuevos+mantienen en Cuadro 4 y Cuadro 5 por separado, el "total_ganaderos"
+de 2025-C1/2025-C2 YA NO coincide exactamente entre Cuadro 4 y Cuadro 5 -
+antes sí, porque "total" se redondeaba independiente de la partición usada.
+La causa: Cuadro 4 usa el ciclo INMEDIATAMENTE anterior como referencia y
+Cuadro 5 usa el mismo ciclo del año anterior - son 2 particiones distintas
+de la misma población 2025, y el redondeo independiente por municipio de
+cada partición no da exactamente la misma suma. Residuo verificado: ~0.005%
+a nivel nacional (32/682.243 en 2025-C1, 12/644.461 en 2025-C2). El usuario
+priorizó la identidad interna de cada cuadro (Total=Nuevos+Mantienen, fila
+por fila) sobre la coincidencia cruzada Cuadro4↔Cuadro5 - por eso
+`validacion_estructura_cuadros.py` ya NO declara esa comparación cruzada
+(antes sí la tenía, cuando aplicaba).
 
 CORRECCIÓN 2026-09-25 (decisión del usuario) - LOS BLOQUES 2024 (2024-C1,
 2024-C2) SE MUESTRAN CON LOS VALORES YA PUBLICADOS, NO CON EL CÁLCULO
@@ -190,19 +207,24 @@ def _armar_cuadro(nombre_cuadro: str, bloques: list[tuple[str, str, str]]) -> tu
     módulo."""
     agg = None
     value_cols: list[str] = []
+    columnas_totales: dict[str, list[str]] = {}
     for prefijo, actual_et, referencia_et in bloques:
         actual = _cargar(actual_et)
         referencia = _cargar(referencia_et)
         bloque_df, cols = _comparar_bloque(actual, referencia, prefijo)
         value_cols += cols
+        # "total" = "nuevos" + "se mantienen" (partición exacta del ciclo
+        # ACTUAL - "salieron" es una cantidad del ciclo de REFERENCIA, no
+        # forma parte del total actual, ver docstring del módulo). Corregido
+        # 2026-09-25 (el usuario detectó el residuo, mismo criterio que
+        # Cuadro 7): antes "total" quedaba independiente "para coincidir con
+        # Cuadro 1/3", pero esa razón no aplicaba - ya no se declara así.
+        columnas_totales[f"{prefijo}_total"] = [f"{prefijo}_nuevos", f"{prefijo}_mantienen"]
         agg = bloque_df if agg is None else agg.merge(bloque_df, on="CODIGO_MUNICIPIO", how="outer")
     for c in value_cols:
         agg[c] = agg[c].fillna(0.0)
 
-    # SIN `columnas_totales` - ver docstring del módulo (cada "_total" debe
-    # coincidir exacto con Cuadro 1/3 para los bloques 2025, no derivarse de
-    # nuevos+mantienen).
-    tabla = agregador.generar_cuadro(agg, value_cols)
+    tabla = agregador.generar_cuadro(agg, value_cols, columnas_totales=columnas_totales)
 
     # Sobrescribe los bloques 2024 con los valores YA PUBLICADOS (ver
     # docstring del módulo) - los bloques 2025 quedan con el cálculo propio.

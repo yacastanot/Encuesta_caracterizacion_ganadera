@@ -78,7 +78,21 @@ def _definiciones() -> list[DefinicionCuadro]:
         col_natural, col_total = f"{slug}_natural", f"{slug}_total"
         value_cols_cuadro6_pg += [col_total, col_natural, col_h, col_m, col_j]
         columnas_totales_cuadro6_pg[col_natural] = [col_h, col_m]
-        columnas_totales_cuadro6_pg[col_total] = [col_natural, col_j]
+        # OJO - "{sistema}_total = {sistema}_natural + {sistema}_j" NO se
+        # declara acá (a diferencia de "{sistema}_natural = h + m", que sí se
+        # mantiene): el sistema que absorbe el residuo del margen entre
+        # sistemas (ver "total_predios_ganaderos" más abajo y docstring de
+        # `generar_cuadro6` en `cuadros/predio_ganadero.py`) varía fila a
+        # fila (no siempre el mismo, para evitar negativos) y queda con su
+        # propio "_total" ajustado sin que "_natural + _j" lo reproduzca
+        # exacto - mismo trade-off aceptado en "Doble propósito" de Cuadro
+        # 4/5 del libro inventario.
+    # "total_predios_ganaderos" = suma de los 4 "{sistema}_total" (margen de
+    # sistema productivo, exhaustivo) - a pedido del usuario 2026-10-02, ver
+    # `agregador.forzar_suma_exacta` en `cuadros/predio_ganadero.py`.
+    columnas_totales_cuadro6_pg["total_predios_ganaderos"] = [
+        f"{predio_ganadero._SISTEMA_SLUG[s]}_total" for s in predio_ganadero.SISTEMAS_PRODUCTIVOS_ORDEN
+    ]
 
     # Misma geometría con la que `predio_ganadero.generar_cuadro7` construyó
     # el cuadro (bloque "Total" + 6 bloques de orientación, cada uno x 4
@@ -86,10 +100,23 @@ def _definiciones() -> list[DefinicionCuadro]:
     value_cols_cuadro7_pg = ["total_predios_ganaderos"] + [
         f"total_{predio_ganadero._SISTEMA_SLUG[s]}" for s in predio_ganadero.SISTEMAS_PRODUCTIVOS_ORDEN
     ]
+    # "total_predios_ganaderos" tiene 2 relaciones de suma (margen de sistema
+    # Y margen de orientación - ambas exactas por construcción, ver
+    # `cuadros/predio_ganadero.generar_cuadro7`) - un `dict` solo admite una
+    # relación por columna, así que la 2da (margen de orientación) se declara
+    # en un `DefinicionCuadro` aparte más abajo
+    # ("predio_ganadero_cuadro7_margen_orientacion").
+    columnas_totales_cuadro7_pg: dict[str, list[str]] = {
+        "total_predios_ganaderos": [f"total_{predio_ganadero._SISTEMA_SLUG[s]}" for s in predio_ganadero.SISTEMAS_PRODUCTIVOS_ORDEN],
+    }
     for orientacion in predio_ganadero.ORIENTACIONES_ORDEN:
         oslug = predio_ganadero._ORIENTACION_SLUG[orientacion]
         value_cols_cuadro7_pg.append(f"{oslug}_total")
         value_cols_cuadro7_pg += [f"{oslug}_{predio_ganadero._SISTEMA_SLUG[s]}" for s in predio_ganadero.SISTEMAS_PRODUCTIVOS_ORDEN]
+        columnas_totales_cuadro7_pg[f"{oslug}_total"] = [f"{oslug}_{predio_ganadero._SISTEMA_SLUG[s]}" for s in predio_ganadero.SISTEMAS_PRODUCTIVOS_ORDEN]
+    columnas_totales_cuadro7_margen_orientacion = {
+        "total_predios_ganaderos": [f"{predio_ganadero._ORIENTACION_SLUG[o]}_total" for o in predio_ganadero.ORIENTACIONES_ORDEN],
+    }
 
     # Misma geometría con la que `predio_ganadero.generar_cuadro8` construyó
     # el cuadro (bloque "Total" + 3 bloques de sexo/persona jurídica, cada
@@ -97,43 +124,68 @@ def _definiciones() -> list[DefinicionCuadro]:
     value_cols_cuadro8_pg = ["total_predios_ganaderos"] + [
         f"total_{predio_ganadero._SISTEMA_SLUG[s]}" for s in predio_ganadero.SISTEMAS_PRODUCTIVOS_ORDEN
     ]
+    # 2 márgenes para "total_predios_ganaderos" (sistema Y género) - mismo
+    # motivo que Cuadro 7, la 2da relación (género) va en un
+    # `DefinicionCuadro` aparte ("predio_ganadero_cuadro8_margen_genero").
+    columnas_totales_cuadro8_pg: dict[str, list[str]] = {
+        "total_predios_ganaderos": [f"total_{predio_ganadero._SISTEMA_SLUG[s]}" for s in predio_ganadero.SISTEMAS_PRODUCTIVOS_ORDEN],
+    }
     for genero in predio_ganadero._GENERO_BLOQUE_ORDEN:
         gslug = predio_ganadero._GENERO_BLOQUE_SLUG[genero]
         value_cols_cuadro8_pg.append(f"{gslug}_total")
         value_cols_cuadro8_pg += [f"{gslug}_{predio_ganadero._SISTEMA_SLUG[s]}" for s in predio_ganadero.SISTEMAS_PRODUCTIVOS_ORDEN]
+        columnas_totales_cuadro8_pg[f"{gslug}_total"] = [f"{gslug}_{predio_ganadero._SISTEMA_SLUG[s]}" for s in predio_ganadero.SISTEMAS_PRODUCTIVOS_ORDEN]
+    columnas_totales_cuadro8_margen_genero = {
+        "total_predios_ganaderos": [f"{predio_ganadero._GENERO_BLOQUE_SLUG[g]}_total" for g in predio_ganadero._GENERO_BLOQUE_ORDEN],
+    }
 
     # Misma geometría con la que `predio_ganadero.generar_cuadro9` construyó
     # el cuadro (columna "Total" general + 3 bloques de sexo/persona
     # jurídica, en el orden Mujer/Hombre/jurídica, cada uno x 6 orientaciones).
     value_cols_cuadro9_pg = ["total_predios_ganaderos"]
+    columnas_totales_cuadro9_pg: dict[str, list[str]] = {
+        "total_predios_ganaderos": [f"{predio_ganadero._GENERO_BLOQUE_SLUG[g]}_total" for g in predio_ganadero._GENERO_ORDEN_CUADRO9],
+    }
     for genero in predio_ganadero._GENERO_ORDEN_CUADRO9:
         gslug = predio_ganadero._GENERO_BLOQUE_SLUG[genero]
         value_cols_cuadro9_pg.append(f"{gslug}_total")
         value_cols_cuadro9_pg += [f"{gslug}_{predio_ganadero._ORIENTACION_SLUG[o]}" for o in predio_ganadero.ORIENTACIONES_ORDEN]
+        columnas_totales_cuadro9_pg[f"{gslug}_total"] = [f"{gslug}_{predio_ganadero._ORIENTACION_SLUG[o]}" for o in predio_ganadero.ORIENTACIONES_ORDEN]
 
     # Misma geometría con la que `predio_ganadero.generar_cuadro10` construyó
     # el cuadro (columna "Total" general + 6 bloques de tenencia, cada uno x
     # 4 sistemas productivos).
     value_cols_cuadro10_pg = ["total_predios_ganaderos"]
+    columnas_totales_cuadro10_pg: dict[str, list[str]] = {
+        "total_predios_ganaderos": [f"{predio_ganadero._TENENCIA_SLUG[t]}_total" for t in predio_ganadero.TENENCIA_ORDEN],
+    }
     for tenencia in predio_ganadero.TENENCIA_ORDEN:
         tslug = predio_ganadero._TENENCIA_SLUG[tenencia]
         value_cols_cuadro10_pg.append(f"{tslug}_total")
         value_cols_cuadro10_pg += [f"{tslug}_{predio_ganadero._SISTEMA_SLUG[s]}" for s in predio_ganadero.SISTEMAS_PRODUCTIVOS_ORDEN]
+        columnas_totales_cuadro10_pg[f"{tslug}_total"] = [f"{tslug}_{predio_ganadero._SISTEMA_SLUG[s]}" for s in predio_ganadero.SISTEMAS_PRODUCTIVOS_ORDEN]
 
     # Misma geometría con la que `predio_ganadero.generar_cuadro11` construyó
     # el cuadro (Total + 6 columnas de tenencia, sin cruce).
     value_cols_cuadro11_pg = ["total_predios_ganaderos"] + [
         predio_ganadero._TENENCIA_SLUG[t] for t in predio_ganadero.TENENCIA_ORDEN
     ]
+    columnas_totales_cuadro11_pg = {
+        "total_predios_ganaderos": [predio_ganadero._TENENCIA_SLUG[t] for t in predio_ganadero.TENENCIA_ORDEN],
+    }
 
     # Misma geometría con la que `predio_ganadero.generar_cuadro12` construyó
     # el cuadro (columna "Total" general + 6 bloques de tenencia, cada uno x
     # 6 orientaciones).
     value_cols_cuadro12_pg = ["total_predios_ganaderos"]
+    columnas_totales_cuadro12_pg: dict[str, list[str]] = {
+        "total_predios_ganaderos": [f"{predio_ganadero._TENENCIA_SLUG[t]}_total" for t in predio_ganadero.TENENCIA_ORDEN],
+    }
     for tenencia in predio_ganadero.TENENCIA_ORDEN:
         tslug = predio_ganadero._TENENCIA_SLUG[tenencia]
         value_cols_cuadro12_pg.append(f"{tslug}_total")
         value_cols_cuadro12_pg += [f"{tslug}_{predio_ganadero._ORIENTACION_SLUG[o]}" for o in predio_ganadero.ORIENTACIONES_ORDEN]
+        columnas_totales_cuadro12_pg[f"{tslug}_total"] = [f"{tslug}_{predio_ganadero._ORIENTACION_SLUG[o]}" for o in predio_ganadero.ORIENTACIONES_ORDEN]
 
     # Misma geometría con la que `predio_ganadero.generar_cuadro13` construyó
     # el cuadro (Total + 8 rangos de `menores18`, sin cruce).
@@ -141,6 +193,7 @@ def _definiciones() -> list[DefinicionCuadro]:
         "total_predios_ganaderos", "cero", "de_1_a_5", "de_6_a_10", "de_11_a_15",
         "de_16_a_20", "de_21_a_50", "mas_50", "no_sabe",
     ]
+    columnas_totales_cuadro13_pg = {"total_predios_ganaderos": value_cols_cuadro13_pg[1:]}
 
     # Misma geometría con la que `predio_ganadero.generar_cuadro14` construyó
     # el cuadro (Total + con colmenas + 6 rangos de cantidad de colmenas).
@@ -148,6 +201,9 @@ def _definiciones() -> list[DefinicionCuadro]:
         "total_predios_ganaderos", "con_colmenas", "cero", "de_1_a_10",
         "de_11_a_30", "de_31_a_50", "mas_50", "no_sabe",
     ]
+    # "con_colmenas" NO participa (marcador aparte, no categoría de esta
+    # partición - ver docstring de `cuadros/predio_ganadero.generar_cuadro14`).
+    columnas_totales_cuadro14_pg = {"total_predios_ganaderos": value_cols_cuadro14_pg[2:]}
 
     return [
         DefinicionCuadro(
@@ -160,10 +216,33 @@ def _definiciones() -> list[DefinicionCuadro]:
             columna_inicio=8,
         ),
         DefinicionCuadro(
+            # Bloque "nuevos" (columnas K-N, `comun.generar_cuadro1_nuevos`) -
+            # idéntico en los 3 libros (un solo pendiente), ver `main.py`.
+            "inventario_cuadro1_nuevos", inv, "Cuadro 1", 7,
+            ["predios_nuevos", "ganaderos_nuevos", "predios_ganaderos_nuevos", "animales_predios_nuevos"],
+            columna_inicio=11,
+        ),
+        DefinicionCuadro(
             "inventario_cuadro3_bovinos", inv, "Cuadro 3", 8,
             inventario.value_cols(), inventario._columnas_totales(),
         ),
         DefinicionCuadro(
+            # "blk_total__*" se reutiliza exacto de Cuadro 3 (ver docstring
+            # de `generar_por_orientacion`) - no se declara acá, solo el
+            # detalle interno de cada bloque de orientación.
+            "inventario_cuadro4_orientacion", inv, "Cuadro 4", 8,
+            inventario.value_cols_por_orientacion(), inventario.columnas_totales_por_orientacion(),
+        ),
+        DefinicionCuadro(
+            "inventario_cuadro5_orientacion", inv, "Cuadro 5", 8,
+            inventario.value_cols_por_orientacion(), inventario.columnas_totales_por_orientacion(),
+        ),
+        DefinicionCuadro(
+            # "sist_total" se reutiliza exacto de Cuadro 3 (no se deriva de
+            # sumar los 4 sistemas) - PERO la suma de los 4 sí debe coincidir
+            # exacto con "sist_total" (a pedido del usuario 2026-09-25): el
+            # residuo de redondeo se absorbe en "Pastoreo mejorado", ver
+            # docstring de `generar_sistema_productivo`.
             "inventario_cuadro6_sistema_productivo", inv, "Cuadro 6", 7,
             inventario.value_cols_sistema_productivo(),
             {"sist_total": [f"sist_{inventario._SISTEMA_SLUG[s]}" for s in inventario.SISTEMA_PRODUCTIVO_ORDEN]},
@@ -204,6 +283,11 @@ def _definiciones() -> list[DefinicionCuadro]:
             columna_inicio=8,
         ),
         DefinicionCuadro(
+            "ganadero_cuadro1_nuevos", gan, "Cuadro 1", 7,
+            ["predios_nuevos", "ganaderos_nuevos", "predios_ganaderos_nuevos", "animales_predios_nuevos"],
+            columna_inicio=11,
+        ),
+        DefinicionCuadro(
             "predio_ganadero_cuadro1", pg, "Cuadro 1", 7,
             ["total_predios", "total_ganaderos", "total_predios_ganaderos"],
         ),
@@ -214,100 +298,124 @@ def _definiciones() -> list[DefinicionCuadro]:
             columna_inicio=8,
         ),
         DefinicionCuadro(
+            "predio_ganadero_cuadro1_nuevos", pg, "Cuadro 1", 7,
+            ["predios_nuevos", "ganaderos_nuevos", "predios_ganaderos_nuevos", "animales_predios_nuevos"],
+            columna_inicio=11,
+        ),
+        DefinicionCuadro(
             # Sin `columnas_totales`: "total_predios_ganaderos" se redondea
             # independiente (para coincidir exacto con Cuadro 1 - ver
-            # `cuadros/predio_ganadero.py`), no como suma de sus 3
-            # categorías - puede quedar un residuo de ±1 entre el total y la
-            # suma de categorías, aceptado (no se valida acá).
+            # "total_predios_ganaderos" se redondea independiente (coincide
+            # exacto con Cuadro 1), pero la suma de las 3 categorías SÍ debe
+            # coincidir con él (ajustado con `agregador.forzar_suma_exacta`
+            # en `cuadros/predio_ganadero.py`, a pedido del usuario 2026-10-02).
             "predio_ganadero_cuadro3", pg, "Cuadro 3", 7,
             ["total_predios_ganaderos", "con_bovinos", "con_bufalinos", "con_ambos"],
+            {"total_predios_ganaderos": ["con_bovinos", "con_bufalinos", "con_ambos"]},
         ),
         DefinicionCuadro(
             # Bloque "Segundo ciclo" (Fase 7, 2026-09-24) - mismo criterio sin
             # `columnas_totales` que el bloque C1.
             "predio_ganadero_cuadro3_c2", pg, "Cuadro 3", 7,
             ["total_predios_ganaderos", "con_bovinos", "con_bufalinos", "con_ambos"],
+            {"total_predios_ganaderos": ["con_bovinos", "con_bufalinos", "con_ambos"]},
             columna_inicio=m.COLUMNA_SEGUNDO_CICLO_PG_C3,
         ),
         DefinicionCuadro(
-            # Sin `columnas_totales` en "total_predios_ganaderos" - mismo
-            # criterio que Cuadro 3 (ver arriba).
+            # Mismo criterio que Cuadro 3 (ver arriba).
             "predio_ganadero_cuadro4", pg, "Cuadro 4", 9,
             ["total_predios_ganaderos"] + [predio_ganadero._ORIENTACION_SLUG[o] for o in predio_ganadero.ORIENTACIONES_ORDEN],
+            {"total_predios_ganaderos": [predio_ganadero._ORIENTACION_SLUG[o] for o in predio_ganadero.ORIENTACIONES_ORDEN]},
         ),
         DefinicionCuadro(
             "predio_ganadero_cuadro4_c2", pg, "Cuadro 4", 9,
             ["total_predios_ganaderos"] + [predio_ganadero._ORIENTACION_SLUG[o] for o in predio_ganadero.ORIENTACIONES_ORDEN],
+            {"total_predios_ganaderos": [predio_ganadero._ORIENTACION_SLUG[o] for o in predio_ganadero.ORIENTACIONES_ORDEN]},
             columna_inicio=m.COLUMNA_SEGUNDO_CICLO_PG_C4,
         ),
         DefinicionCuadro(
-            # Sin `columnas_totales` - mismo criterio que Cuadro 3/4 (ver
-            # `cuadros/predio_ganadero.py`).
+            # Mismo criterio que Cuadro 3/4 (ver `cuadros/predio_ganadero.py`).
             "predio_ganadero_cuadro5", pg, "Cuadro 5", 7,
             ["total_predios_ganaderos"] + [c for c, _ in predio_ganadero.CLASES_CUADRO5],
+            {"total_predios_ganaderos": [c for c, _ in predio_ganadero.CLASES_CUADRO5]},
         ),
         DefinicionCuadro(
-            # Sin "total_predios_ganaderos" en `columnas_totales` - mismo
-            # criterio que Cuadro 3/4/5 (ver `cuadros/predio_ganadero.py`).
+            # "total_predios_ganaderos" = suma de los 4 "{sistema}_total"
+            # (margen de sistema productivo) - resto de `columnas_totales`
+            # ya declaraba la consistencia interna de cada bloque.
             "predio_ganadero_cuadro6", pg, "Cuadro 6", 8,
             value_cols_cuadro6_pg, columnas_totales_cuadro6_pg,
         ),
         DefinicionCuadro(
-            # Sin `columnas_totales`: ni "total_predios_ganaderos" ni los 6
-            # "{orientacion}_total" se derivan como suma de sus 4 columnas de
-            # sistema productivo - mismo criterio que el resto del libro.
+            # Margen de sistema productivo + consistencia interna de cada
+            # bloque de orientación - el margen de orientación va aparte
+            # (ver "predio_ganadero_cuadro7_margen_orientacion" abajo).
             "predio_ganadero_cuadro7", pg, "Cuadro 7", 9,
-            value_cols_cuadro7_pg,
+            value_cols_cuadro7_pg, columnas_totales_cuadro7_pg,
         ),
         DefinicionCuadro(
-            # Sin `columnas_totales` - mismo criterio que Cuadro 7.
+            # 2do margen de Cuadro 7 (orientación) - mismo cuadro/hoja, solo
+            # para declarar esta 2da relación (ver nota arriba).
+            "predio_ganadero_cuadro7_margen_orientacion", pg, "Cuadro 7", 9,
+            value_cols_cuadro7_pg, columnas_totales_cuadro7_margen_orientacion,
+        ),
+        DefinicionCuadro(
+            # Margen de sistema productivo + consistencia interna de cada
+            # bloque de género - el margen de género va aparte (ver
+            # "predio_ganadero_cuadro8_margen_genero" abajo).
             "predio_ganadero_cuadro8", pg, "Cuadro 8", 9,
-            value_cols_cuadro8_pg,
+            value_cols_cuadro8_pg, columnas_totales_cuadro8_pg,
         ),
         DefinicionCuadro(
-            # Sin `columnas_totales` - mismo criterio que Cuadro 7/8.
+            # 2do margen de Cuadro 8 (género).
+            "predio_ganadero_cuadro8_margen_genero", pg, "Cuadro 8", 9,
+            value_cols_cuadro8_pg, columnas_totales_cuadro8_margen_genero,
+        ),
+        DefinicionCuadro(
+            # Margen de género + consistencia interna de cada bloque con sus
+            # 6 orientaciones.
             "predio_ganadero_cuadro9", pg, "Cuadro 9", 9,
-            value_cols_cuadro9_pg,
+            value_cols_cuadro9_pg, columnas_totales_cuadro9_pg,
         ),
         DefinicionCuadro(
             "predio_ganadero_cuadro9_c2", pg, "Cuadro 9", 9,
-            value_cols_cuadro9_pg,
+            value_cols_cuadro9_pg, columnas_totales_cuadro9_pg,
             columna_inicio=m.COLUMNA_SEGUNDO_CICLO_PG_C9,
         ),
         DefinicionCuadro(
-            # Sin `columnas_totales` - mismo criterio que Cuadro 7/8/9.
+            # Margen de tenencia + consistencia interna de cada bloque con
+            # sus 4 sistemas productivos.
             "predio_ganadero_cuadro10", pg, "Cuadro 10", 8,
-            value_cols_cuadro10_pg,
+            value_cols_cuadro10_pg, columnas_totales_cuadro10_pg,
         ),
         DefinicionCuadro(
-            # Sin `columnas_totales` - mismo criterio que Cuadro 3/4/5.
             "predio_ganadero_cuadro11", pg, "Cuadro 11", 11,
-            value_cols_cuadro11_pg,
+            value_cols_cuadro11_pg, columnas_totales_cuadro11_pg,
         ),
         DefinicionCuadro(
             "predio_ganadero_cuadro11_c2", pg, "Cuadro 11", 11,
-            value_cols_cuadro11_pg,
+            value_cols_cuadro11_pg, columnas_totales_cuadro11_pg,
             columna_inicio=m.COLUMNA_SEGUNDO_CICLO_PG_C11,
         ),
         DefinicionCuadro(
-            # Sin `columnas_totales` - mismo criterio que Cuadro 7/8/9/10.
+            # Margen de tenencia + consistencia interna de cada bloque con
+            # sus 6 orientaciones.
             "predio_ganadero_cuadro12", pg, "Cuadro 12", 12,
-            value_cols_cuadro12_pg,
+            value_cols_cuadro12_pg, columnas_totales_cuadro12_pg,
         ),
         DefinicionCuadro(
             "predio_ganadero_cuadro12_c2", pg, "Cuadro 12", 12,
-            value_cols_cuadro12_pg,
+            value_cols_cuadro12_pg, columnas_totales_cuadro12_pg,
             columna_inicio=m.COLUMNA_SEGUNDO_CICLO_PG_C12,
         ),
         DefinicionCuadro(
-            # Sin `columnas_totales` - mismo criterio que el resto del libro.
             "predio_ganadero_cuadro13", pg, "Cuadro 13", 8,
-            value_cols_cuadro13_pg,
+            value_cols_cuadro13_pg, columnas_totales_cuadro13_pg,
         ),
         DefinicionCuadro(
-            # Sin `columnas_totales` - mismo criterio que el resto del libro.
+            # "con_colmenas" no participa (ver `columnas_totales_cuadro14_pg`).
             "predio_ganadero_cuadro14", pg, "Cuadro 14", 8,
-            value_cols_cuadro14_pg,
+            value_cols_cuadro14_pg, columnas_totales_cuadro14_pg,
         ),
         DefinicionCuadro(
             # Solo Ciclo 2 (no existe en C1) - Total + 5 bloques de cobertura
@@ -332,6 +440,7 @@ def _definiciones() -> list[DefinicionCuadro]:
             # independiente, igual que el resto del libro.
             "predio_ganadero_cuadro17", pg, "Cuadro 17", 12,
             ["total_predios_ganaderos", "si", "no", "no_sabe"],
+            {"total_predios_ganaderos": ["si", "no", "no_sabe"]},
         ),
         DefinicionCuadro(
             # Solo Ciclo 2 - Total + con razas puras + con cruces (no
@@ -350,16 +459,20 @@ def _definiciones() -> list[DefinicionCuadro]:
         DefinicionCuadro(
             # Histórico 2023-2025 ("nuevos/salieron/se mantienen" vs. ciclo
             # anterior / mismo ciclo año anterior) - ver
-            # `cuadros/ganadero_historico.py`. SIN `columnas_totales`: cada
-            # "_total" debe coincidir exacto con Cuadro 1/3 (bloques 2025) -
-            # `value_cols` tomado directo de la función para no duplicar a
-            # mano las 16 columnas.
+            # `cuadros/ganadero_historico.py`. "total" = "nuevos" +
+            # "mantienen" SOLO en los bloques 2025 (cálculo propio, corregido
+            # 2026-09-25) - los bloques 2024 (copiados del libro publicado)
+            # NO se fuerzan (su "total" es el valor oficial publicado, queda
+            # un residuo pequeño frente a nuevos+mantienen, aceptado). `value_cols`
+            # tomado directo de la función para no duplicar a mano las 16 columnas.
             "ganadero_cuadro4_historico", gan, "Cuadro 4", 7,
             ganadero_historico.generar_cuadro4()[1],
+            {"c2025c1_total": ["c2025c1_nuevos", "c2025c1_mantienen"], "c2025c2_total": ["c2025c2_nuevos", "c2025c2_mantienen"]},
         ),
         DefinicionCuadro(
             "ganadero_cuadro5_historico", gan, "Cuadro 5", 7,
             ganadero_historico.generar_cuadro5()[1],
+            {"c2025c1_total": ["c2025c1_nuevos", "c2025c1_mantienen"], "c2025c2_total": ["c2025c2_nuevos", "c2025c2_mantienen"]},
         ),
         DefinicionCuadro(
             "ganadero_cuadro3_sexo", gan, "Cuadro 3", 8,
@@ -648,41 +761,95 @@ class ComparacionCruzada:
 def _comparaciones_cruzadas() -> list[ComparacionCruzada]:
     defs = {d.nombre: d for d in _definiciones()}
     return [
-        # --- ganadero: Cuadro 4/5 (histórico) vs. Cuadro 1/3 (bloques 2025) ---
-        # "Total de ganaderos en el ciclo" de los bloques 2025-C1/2025-C2 de
-        # Cuadro 4/5 es la MISMA cantidad real que "Total ganaderos" de
-        # Cuadro 1/3 (misma base_maestra_c1/c2, mismo peso_ganadero) -
-        # calculada de forma independiente en cada cuadro, debe coincidir
-        # exacto (ver docstring de `cuadros/ganadero_historico.py`).
+        # --- Cuadro 1 ENTRE LOS 3 LIBROS (inventario/ganadero/predio-ganadero) ---
+        # Los 3 libros comparten el MISMO pendiente para Cuadro 1 (ver
+        # `_paso_cuadro1_ganadero` en `main.py`: "idéntico en los 3 libros -
+        # un solo pendiente, `ensamblar` lo aplica a los 3") - deben coincidir
+        # EXACTO, a pedido del usuario 2026-10-02 (validar predio-ganadero
+        # contra inventario y ganadero). Se comparan los 2 pares que cubren
+        # los 3 libros de forma transitiva (inventario=ganadero,
+        # ganadero=predio_ganadero implica inventario=predio_ganadero), más
+        # el par directo inventario vs predio_ganadero por claridad.
+        *[
+            ComparacionCruzada(
+                f"Cuadro 1: {col} (inventario vs ganadero{sufijo_nombre})",
+                defs[f"inventario_cuadro1{sufijo_def}"], col,
+                defs[f"ganadero_cuadro1{sufijo_def}"], col,
+            )
+            for col in ["total_predios", "total_ganaderos", "total_predios_ganaderos"]
+            for sufijo_nombre, sufijo_def in [(" - C1", ""), (" - C2", "_c2")]
+        ],
+        *[
+            ComparacionCruzada(
+                f"Cuadro 1: {col} (ganadero vs predio_ganadero{sufijo_nombre})",
+                defs[f"ganadero_cuadro1{sufijo_def}"], col,
+                defs[f"predio_ganadero_cuadro1{sufijo_def}"], col,
+            )
+            for col in ["total_predios", "total_ganaderos", "total_predios_ganaderos"]
+            for sufijo_nombre, sufijo_def in [(" - C1", ""), (" - C2", "_c2")]
+        ],
+        *[
+            ComparacionCruzada(
+                f"Cuadro 1: {col} (inventario vs predio_ganadero{sufijo_nombre})",
+                defs[f"inventario_cuadro1{sufijo_def}"], col,
+                defs[f"predio_ganadero_cuadro1{sufijo_def}"], col,
+            )
+            for col in ["total_predios", "total_ganaderos", "total_predios_ganaderos"]
+            for sufijo_nombre, sufijo_def in [(" - C1", ""), (" - C2", "_c2")]
+        ],
+        # --- Cuadro 1, bloque "nuevos" (K-N) ENTRE LOS 3 LIBROS - mismo
+        # pendiente compartido, ver `_paso_cuadro1_ganadero_nuevos` en main.py.
+        *[
+            ComparacionCruzada(
+                f"Cuadro 1 nuevos: {col} (inventario vs ganadero)",
+                defs["inventario_cuadro1_nuevos"], col,
+                defs["ganadero_cuadro1_nuevos"], col,
+            )
+            for col in ["predios_nuevos", "ganaderos_nuevos", "predios_ganaderos_nuevos", "animales_predios_nuevos"]
+        ],
+        *[
+            ComparacionCruzada(
+                f"Cuadro 1 nuevos: {col} (ganadero vs predio_ganadero)",
+                defs["ganadero_cuadro1_nuevos"], col,
+                defs["predio_ganadero_cuadro1_nuevos"], col,
+            )
+            for col in ["predios_nuevos", "ganaderos_nuevos", "predios_ganaderos_nuevos", "animales_predios_nuevos"]
+        ],
+        # --- ganadero: Cuadro 4 vs Cuadro 5 (histórico, bloques 2025) ---
+        # OJO - ya NO se compara contra Cuadro 1/3, NI Cuadro 4 contra Cuadro 5
+        # (corregido 2026-09-25, ver docstring de `cuadros/ganadero_historico.py`):
+        # "total" de estos bloques ahora se DERIVA de nuevos+mantienen
+        # (consistencia interna fila por fila, a pedido explícito del
+        # usuario), en vez de redondearse independiente. Cuadro 4 y Cuadro 5
+        # usan un ciclo de referencia distinto para "nuevos"/"mantienen"
+        # (Cuadro 4 = ciclo inmediatamente anterior; Cuadro 5 = mismo ciclo
+        # del año anterior) - son 2 particiones distintas de la misma
+        # población 2025, así que al redondear cada una de forma
+        # independiente por municipio, sus sumas ya NO coinciden exactamente
+        # entre Cuadro 4 y Cuadro 5 (residuo de ~0.005%, ej. 32/682.243 en
+        # 2025-C1 nacional). El usuario priorizó la identidad interna de
+        # cada cuadro (Total=Nuevos+Mantienen) sobre la coincidencia cruzada
+        # Cuadro4↔Cuadro5, así que esa comparación cruzada ya no se declara
+        # aquí (antes sí, cuando "total" se rondeaba independiente y por
+        # construcción coincidía).
         ComparacionCruzada(
-            "ganadero: total_ganaderos (Cuadro 1 vs Cuadro 4, 2025-C1)",
-            defs["ganadero_cuadro1"], "total_ganaderos",
-            defs["ganadero_cuadro4_historico"], "c2025c1_total",
+            # sist_total se reutiliza exacto de Cuadro 3 (ver
+            # `generar_sistema_productivo`) - deben coincidir siempre.
+            "inventario: total bovinos (Cuadro 3 vs Cuadro 6)",
+            defs["inventario_cuadro3_bovinos"], "total_total",
+            defs["inventario_cuadro6_sistema_productivo"], "sist_total",
         ),
         ComparacionCruzada(
-            "ganadero: total_ganaderos (Cuadro 1 vs Cuadro 4, 2025-C2)",
-            defs["ganadero_cuadro1_c2"], "total_ganaderos",
-            defs["ganadero_cuadro4_historico"], "c2025c2_total",
+            # blk_total__total_total se reutiliza exacto de Cuadro 3 C1 (ver
+            # docstring de `generar_por_orientacion`) - deben coincidir siempre.
+            "inventario: total bovinos (Cuadro 3 vs Cuadro 4, C1)",
+            defs["inventario_cuadro3_bovinos"], "total_total",
+            defs["inventario_cuadro4_orientacion"], "blk_total__total_total",
         ),
         ComparacionCruzada(
-            "ganadero: total_ganaderos (Cuadro 1 vs Cuadro 5, 2025-C1)",
-            defs["ganadero_cuadro1"], "total_ganaderos",
-            defs["ganadero_cuadro5_historico"], "c2025c1_total",
-        ),
-        ComparacionCruzada(
-            "ganadero: total_ganaderos (Cuadro 1 vs Cuadro 5, 2025-C2)",
-            defs["ganadero_cuadro1_c2"], "total_ganaderos",
-            defs["ganadero_cuadro5_historico"], "c2025c2_total",
-        ),
-        ComparacionCruzada(
-            "ganadero: total_ganaderos (Cuadro 4 vs Cuadro 5, 2025-C1)",
-            defs["ganadero_cuadro4_historico"], "c2025c1_total",
-            defs["ganadero_cuadro5_historico"], "c2025c1_total",
-        ),
-        ComparacionCruzada(
-            "ganadero: total_ganaderos (Cuadro 4 vs Cuadro 5, 2025-C2)",
-            defs["ganadero_cuadro4_historico"], "c2025c2_total",
-            defs["ganadero_cuadro5_historico"], "c2025c2_total",
+            "inventario: total bovinos (Cuadro 3 vs Cuadro 5, C2)",
+            defs["inventario_cuadro3_bovinos_c2"], "total_total",
+            defs["inventario_cuadro5_orientacion"], "blk_total__total_total",
         ),
         ComparacionCruzada(
             "predio_ganadero: total_predios_ganaderos (Cuadro 1 vs Cuadro 3)",

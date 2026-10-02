@@ -181,8 +181,13 @@ ganaderos" general (E) es independiente (coincide con Cuadro 1/.../11); la
 columna "Total" de cada uno de los 6 bloques de tenencia coincide exacto con
 la columna equivalente de Cuadro 11 (misma cantidad real, predios-ganadero
 por tenencia sin cruzar con otra variable). Igual que Cuadro 9/11, la
-plantilla trae un bloque "Segundo ciclo" (columnas AV en adelante) que queda
-pendiente; solo se construyen las columnas E-AU (Primer ciclo).
+plantilla trae un bloque "Segundo ciclo" (columnas AV en adelante, mismas 43
+columnas que el bloque Primer ciclo) - ya construido (`ciclo="C2"`). Nota
+2026-10-02: el usuario ajustó manualmente en el archivo ya generado (no en
+el código) la columna "Total predios ganaderos" de este bloque C2 y la
+posición de la fila "Total Nacional" en esta hoja (fila 9, no 12 como en el
+resto del libro) - ver `validacion_estructura_cuadros.py`, que ya refleja
+esta estructura real.
 
 Cuadro 13 - "Cantidad de predios ganaderos por número de niños que residen
 permanentemente en el predio ganadero" (pregunta "¿Cuántos menores de 18
@@ -913,14 +918,31 @@ def generar_cuadro14() -> tuple[pd.DataFrame, list[str]]:
 
     value_cols = ["total_predios_ganaderos"] + cols_rango
     # "total_predios_ganaderos" independiente (coincide con Cuadro 1/.../13).
-    # "con_colmenas" NO participa de la suma (es un marcador aparte, no una
-    # categoría de esta partición - ver docstring del módulo); los 6 rangos
-    # de cantidad de colmenas SÍ son una partición exhaustiva de TODOS los
-    # predios-ganadero (ver docstring del módulo) y se ajustan DESPUÉS con
-    # `agregador.forzar_suma_exacta` para sumar exacto el total.
     tabla = agregador.generar_cuadro(agg, value_cols)
-    cols_rango_solo = [c for c in cols_rango if c != "con_colmenas"]
-    agregador.forzar_suma_exacta(tabla, "total_predios_ganaderos", cols_rango_solo)
+
+    # 2 identidades deben cumplirse a la vez (a pedido del usuario,
+    # 2026-10-02, tras detectar que no coincidían exacto):
+    #  (A) total_predios_ganaderos = cero + de_1_a_10 + de_11_a_30 +
+    #      de_31_a_50 + mas_50 + no_sabe (partición exhaustiva de TODOS los
+    #      predios-ganadero, ver docstring del módulo).
+    #  (B) con_colmenas (= "tienecolmenas"="Sí") = de_1_a_10 + de_11_a_30 +
+    #      de_31_a_50 + mas_50 (la cantidad reportada, cuando es >= 1).
+    # En los datos reales hay 27 predios (de 9.723 que respondieron "Sí
+    # tengo colmenas") que además reportaron 0 colmenas - quedan mezclados
+    # en "cero" junto con quienes respondieron "No" (que también caen ahí,
+    # por construcción de `efectivo`), así que antes de este ajuste
+    # con_colmenas (9.922 calibrado) no coincidía con la suma de los 4
+    # rangos positivos (9.894) - una diferencia real de datos, no solo
+    # redondeo. Se resuelve así: (B) se fuerza igual que en el resto del
+    # proyecto (`agregador.forzar_suma_exacta`, absorbe el residuo en el
+    # rango positivo más grande de cada fila); (A) se cumple recalculando
+    # "cero" como el residuo exacto (total - con_colmenas - no_sabe) en vez
+    # de su propio conteo crudo - los 27 casos "Sí pero 0" quedan así
+    # contados dentro de "con_colmenas"/los rangos positivos (vía el ajuste
+    # de (B)) y automáticamente fuera de "cero", que es lo que pedía el
+    # usuario. Orden importa: (B) primero, "cero" se deriva de su resultado.
+    agregador.forzar_suma_exacta(tabla, "con_colmenas", ["de_1_a_10", "de_11_a_30", "de_31_a_50", "mas_50"])
+    tabla["cero"] = tabla["total_predios_ganaderos"] - tabla["con_colmenas"] - tabla["no_sabe"]
     return tabla, value_cols
 
 

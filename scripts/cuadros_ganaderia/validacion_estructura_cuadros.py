@@ -201,9 +201,14 @@ def _definiciones() -> list[DefinicionCuadro]:
         "total_predios_ganaderos", "con_colmenas", "cero", "de_1_a_10",
         "de_11_a_30", "de_31_a_50", "mas_50", "no_sabe",
     ]
-    # "con_colmenas" NO participa (marcador aparte, no categoría de esta
-    # partición - ver docstring de `cuadros/predio_ganadero.generar_cuadro14`).
-    columnas_totales_cuadro14_pg = {"total_predios_ganaderos": value_cols_cuadro14_pg[2:]}
+    # "con_colmenas" NO participa de la suma de "total_predios_ganaderos"
+    # (marcador aparte - ver docstring de `generar_cuadro14`), PERO sí debe
+    # coincidir con la suma de los 4 rangos positivos (corregido 2026-10-02,
+    # a pedido del usuario).
+    columnas_totales_cuadro14_pg = {
+        "total_predios_ganaderos": value_cols_cuadro14_pg[2:],
+        "con_colmenas": ["de_1_a_10", "de_11_a_30", "de_31_a_50", "mas_50"],
+    }
 
     return [
         DefinicionCuadro(
@@ -400,11 +405,16 @@ def _definiciones() -> list[DefinicionCuadro]:
         DefinicionCuadro(
             # Margen de tenencia + consistencia interna de cada bloque con
             # sus 6 orientaciones.
-            "predio_ganadero_cuadro12", pg, "Cuadro 12", 12,
+            # fila_nacional=9 (no 12): el usuario ajustó manualmente la
+            # estructura de esta hoja en el archivo ya generado (agregó la
+            # columna "Total predios ganaderos" que faltaba en el bloque
+            # Segundo ciclo) - confirmado correcto por el usuario 2026-10-02,
+            # ver docstring de `generar_cuadro12`.
+            "predio_ganadero_cuadro12", pg, "Cuadro 12", 9,
             value_cols_cuadro12_pg, columnas_totales_cuadro12_pg,
         ),
         DefinicionCuadro(
-            "predio_ganadero_cuadro12_c2", pg, "Cuadro 12", 12,
+            "predio_ganadero_cuadro12_c2", pg, "Cuadro 12", 9,
             value_cols_cuadro12_pg, columnas_totales_cuadro12_pg,
             columna_inicio=m.COLUMNA_SEGUNDO_CICLO_PG_C12,
         ),

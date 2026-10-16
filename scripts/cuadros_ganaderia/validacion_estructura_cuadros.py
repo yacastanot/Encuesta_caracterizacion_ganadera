@@ -682,7 +682,15 @@ def _leer_filas(d: DefinicionCuadro, municipios_validos: set, deptos_validos: se
             nivel = "Departamento"
         else:
             break  # primera fila que no es dato real (notas al pie) -> fin
-        vals = [ws.cell(row=r, column=d.columna_inicio + j).value or 0 for j in range(n)]
+        # Los municipios excluidos (ver `Excluidos/Municipios_Sin_Información.xlsx`)
+        # muestran un código de texto ("n.d."/"o.c.") en vez de un número, a
+        # partir de 2026-10-16 - cuentan como 0 para efectos de las sumas
+        # verticales/horizontales (ya estaban excluidos del cálculo real, el
+        # código solo cambia cómo se MUESTRA esa fila).
+        vals = []
+        for j in range(n):
+            v = ws.cell(row=r, column=d.columna_inicio + j).value
+            vals.append(v if isinstance(v, (int, float)) else 0)
         filas.append((r, nivel, cod_dep, cod_mun, vals))
         r += 1
     return filas
@@ -826,22 +834,58 @@ def _comparaciones_cruzadas() -> list[ComparacionCruzada]:
             for col in ["predios_nuevos", "ganaderos_nuevos", "predios_ganaderos_nuevos", "animales_predios_nuevos"]
         ],
         # --- ganadero: Cuadro 4 vs Cuadro 5 (histórico, bloques 2025) ---
-        # OJO - ya NO se compara contra Cuadro 1/3, NI Cuadro 4 contra Cuadro 5
-        # (corregido 2026-09-25, ver docstring de `cuadros/ganadero_historico.py`):
-        # "total" de estos bloques ahora se DERIVA de nuevos+mantienen
-        # (consistencia interna fila por fila, a pedido explícito del
-        # usuario), en vez de redondearse independiente. Cuadro 4 y Cuadro 5
-        # usan un ciclo de referencia distinto para "nuevos"/"mantienen"
-        # (Cuadro 4 = ciclo inmediatamente anterior; Cuadro 5 = mismo ciclo
-        # del año anterior) - son 2 particiones distintas de la misma
-        # población 2025, así que al redondear cada una de forma
-        # independiente por municipio, sus sumas ya NO coinciden exactamente
-        # entre Cuadro 4 y Cuadro 5 (residuo de ~0.005%, ej. 32/682.243 en
-        # 2025-C1 nacional). El usuario priorizó la identidad interna de
-        # cada cuadro (Total=Nuevos+Mantienen) sobre la coincidencia cruzada
-        # Cuadro4↔Cuadro5, así que esa comparación cruzada ya no se declara
-        # aquí (antes sí, cuando "total" se rondeaba independiente y por
-        # construcción coincidía).
+        # Restaurado 2026-10-16 (ver docstring de
+        # `cuadros/ganadero_historico.py`): "c2025c1_total"/"c2025c2_total"
+        # ahora reutilizan "total_ganaderos" de Cuadro 1 (no se derivan de
+        # nuevos+mantienen de forma independiente) - como Cuadro 4 y Cuadro 5
+        # quedan forzados al MISMO valor externo, vuelven a coincidir entre
+        # sí exacto, sin sacrificar Total=Nuevos+Mantienen (ver
+        # `agregador.forzar_suma_exacta`).
+        ComparacionCruzada(
+            "ganadero: total_ganaderos (Cuadro 4 vs Cuadro 5, 2025-C1)",
+            defs["ganadero_cuadro4_historico"], "c2025c1_total",
+            defs["ganadero_cuadro5_historico"], "c2025c1_total",
+        ),
+        ComparacionCruzada(
+            "ganadero: total_ganaderos (Cuadro 4 vs Cuadro 5, 2025-C2)",
+            defs["ganadero_cuadro4_historico"], "c2025c2_total",
+            defs["ganadero_cuadro5_historico"], "c2025c2_total",
+        ),
+        ComparacionCruzada(
+            "ganadero: total_ganaderos (Cuadro 1 vs Cuadro 4, 2025-C1)",
+            defs["ganadero_cuadro1"], "total_ganaderos",
+            defs["ganadero_cuadro4_historico"], "c2025c1_total",
+        ),
+        ComparacionCruzada(
+            "ganadero: total_ganaderos (Cuadro 1 vs Cuadro 4, 2025-C2 - Ciclo 2)",
+            defs["ganadero_cuadro1_c2"], "total_ganaderos",
+            defs["ganadero_cuadro4_historico"], "c2025c2_total",
+        ),
+        ComparacionCruzada(
+            "ganadero: total_ganaderos (Cuadro 1 vs Cuadro 5, 2025-C1)",
+            defs["ganadero_cuadro1"], "total_ganaderos",
+            defs["ganadero_cuadro5_historico"], "c2025c1_total",
+        ),
+        ComparacionCruzada(
+            "ganadero: total_ganaderos (Cuadro 1 vs Cuadro 5, 2025-C2 - Ciclo 2)",
+            defs["ganadero_cuadro1_c2"], "total_ganaderos",
+            defs["ganadero_cuadro5_historico"], "c2025c2_total",
+        ),
+        # --- ganadero: Cuadro 1 vs Cuadro 6 (delitos) ---
+        # "total_ganaderos" se reutiliza exacto de Cuadro 1 (corregido
+        # 2026-10-16): el filtro WHERE (réplica del SAS, excluye predios sin
+        # orientación reportada) no afecta ninguna fila en Ciclo 1, pero SÍ
+        # excluía ~206 ganaderos en Ciclo 2 - ver `cuadros/ganadero.py`.
+        ComparacionCruzada(
+            "ganadero: total_ganaderos (Cuadro 1 vs Cuadro 6)",
+            defs["ganadero_cuadro1"], "total_ganaderos",
+            defs["ganadero_cuadro6_delitos"], "total_ganaderos",
+        ),
+        ComparacionCruzada(
+            "ganadero: total_ganaderos (Cuadro 1 vs Cuadro 6 - Ciclo 2)",
+            defs["ganadero_cuadro1_c2"], "total_ganaderos",
+            defs["ganadero_cuadro6_delitos_c2"], "total_ganaderos",
+        ),
         # --- ganadero: Cuadro 1 vs Cuadro 3/7/8/9/10/11/12/13/14/15/16 ---
         # "total_ganaderos" se reutiliza exacto de Cuadro 1 en estos 11
         # cuadros (corregido 2026-10-02, a pedido del usuario - antes cada

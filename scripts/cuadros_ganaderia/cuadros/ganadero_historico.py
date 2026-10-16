@@ -38,19 +38,21 @@ aplica a los bloques calculados (2025-C1/2025-C2); los bloques 2024
 copiados del libro publicado (ver más abajo) usan el "Total" tal cual viene
 publicado, sin recalcularlo de sus componentes.
 
-TRADEOFF ACEPTADO (2026-09-25, decisión del usuario): al derivar "total" de
-nuevos+mantienen en Cuadro 4 y Cuadro 5 por separado, el "total_ganaderos"
-de 2025-C1/2025-C2 YA NO coincide exactamente entre Cuadro 4 y Cuadro 5 -
-antes sí, porque "total" se redondeaba independiente de la partición usada.
-La causa: Cuadro 4 usa el ciclo INMEDIATAMENTE anterior como referencia y
-Cuadro 5 usa el mismo ciclo del año anterior - son 2 particiones distintas
-de la misma población 2025, y el redondeo independiente por municipio de
-cada partición no da exactamente la misma suma. Residuo verificado: ~0.005%
-a nivel nacional (32/682.243 en 2025-C1, 12/644.461 en 2025-C2). El usuario
-priorizó la identidad interna de cada cuadro (Total=Nuevos+Mantienen, fila
-por fila) sobre la coincidencia cruzada Cuadro4↔Cuadro5 - por eso
-`validacion_estructura_cuadros.py` ya NO declara esa comparación cruzada
-(antes sí la tenía, cuando aplicaba).
+CORRECCIÓN 2026-10-16 (a pedido del usuario, reemplaza el trade-off anterior
+de 2026-09-25): los bloques 2025-C1/2025-C2 reutilizan el "total_ganaderos"
+de Cuadro 1 (igual que el resto del libro, ver `cuadros/ganadero.py` /
+`_total_ganaderos_cuadro1`) en vez de derivarlo de nuevos+mantienen - antes,
+cada uno de Cuadro 4/Cuadro 5 derivaba su propio "total" de forma
+independiente (misma identidad interna, pero sin relación con Cuadro 1), lo
+que los hacía coincidir INTERNAMENTE pero no con el resto de cuadros del
+libro, Y TAMPOCO entre sí (Cuadro 4 usa el ciclo inmediatamente anterior
+como referencia, Cuadro 5 el mismo ciclo del año anterior - 2 particiones
+distintas de la misma población 2025, cada una redondeada por separado).
+Ahora "nuevos"/"mantienen" (las 2 hojas reales) se ajustan para sumar
+exacto el total reutilizado de Cuadro 1 - como Cuadro 4 y Cuadro 5 quedan
+forzados al MISMO valor externo, también coinciden entre sí automáticamente:
+se logran las 3 cosas a la vez (Total=Nuevos+Mantienen, Total=Cuadro 1,
+Cuadro4=Cuadro5), sin ningún trade-off.
 
 CORRECCIÓN 2026-09-25 (decisión del usuario) - LOS BLOQUES 2024 (2024-C1,
 2024-C2) SE MUESTRAN CON LOS VALORES YA PUBLICADOS, NO CON EL CÁLCULO
@@ -89,6 +91,7 @@ import openpyxl
 import pandas as pd
 
 from .. import agregador, base_maestra_c1, base_maestra_c2, base_maestra_ganadero_historico, config
+from . import comun
 
 _COLS = ["predioganid", "IDENT_GANADERO", "CODIGO_MUNICIPIO", "peso_ganadero"]
 
@@ -225,6 +228,24 @@ def _armar_cuadro(nombre_cuadro: str, bloques: list[tuple[str, str, str]]) -> tu
         agg[c] = agg[c].fillna(0.0)
 
     tabla = agregador.generar_cuadro(agg, value_cols, columnas_totales=columnas_totales)
+
+    # Los bloques 2025 (c2025c1/c2025c2) reutilizan el "total_ganaderos" de
+    # Cuadro 1 (no el redondeo independiente de arriba) - corregido
+    # 2026-10-16, a pedido del usuario: Cuadro 4 y Cuadro 5 daban cada uno un
+    # "total" ligeramente distinto de Cuadro 1/3/.../16 (y por eso también
+    # distinto entre sí - ver TRADEOFF ACEPTADO en el docstring del módulo,
+    # ahora superado). Mismo criterio que el resto del libro (ver
+    # `cuadros/ganadero.py`, `_total_ganaderos_cuadro1`): se ajustan
+    # "nuevos"/"mantienen" (las 2 HOJAS reales de esta partición) para que
+    # sumen exacto el total reutilizado - como Cuadro 4 y Cuadro 5 quedan
+    # forzados al MISMO valor externo (Cuadro 1), también coinciden entre sí
+    # automáticamente, sin ningún trade-off.
+    for prefijo, ciclo in [("c2025c1", "C1"), ("c2025c2", "C2")]:
+        if f"{prefijo}_total" not in value_cols:
+            continue
+        tabla1, _ = comun.generar_cuadro1(ciclo=ciclo)
+        tabla[f"{prefijo}_total"] = tabla1["total_ganaderos"].reset_index(drop=True)
+        agregador.forzar_suma_exacta(tabla, f"{prefijo}_total", [f"{prefijo}_nuevos", f"{prefijo}_mantienen"])
 
     # Sobrescribe los bloques 2024 con los valores YA PUBLICADOS (ver
     # docstring del módulo) - los bloques 2025 quedan con el cálculo propio.

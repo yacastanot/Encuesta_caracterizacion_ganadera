@@ -217,14 +217,21 @@ def generar_cuadro3(ciclo: str = "C1") -> tuple[pd.DataFrame, list[str]]:
     agg["natural_total"] = agg["mujeres"] + agg["hombres"]
 
     value_cols = ["total_ganaderos", "natural_total", "mujeres", "hombres", "juridica"]
-    # "total_ganaderos" se reutiliza de Cuadro 1 (no se declara acá) -
-    # "natural_total" sigue derivado de mujeres+hombres, y se ajusta DESPUÉS
-    # para que natural_total+juridica sume exacto el total reutilizado - ver
-    # `_total_ganaderos_cuadro1`.
-    columnas_totales = {"natural_total": ["mujeres", "hombres"]}
-    tabla = agregador.generar_cuadro(agg, value_cols, columnas_totales=columnas_totales)
+    # "total_ganaderos" se reutiliza de Cuadro 1 (no se declara acá).
+    tabla = agregador.generar_cuadro(agg, value_cols)
     tabla["total_ganaderos"] = _total_ganaderos_cuadro1(ciclo)
-    agregador.forzar_suma_exacta(tabla, "total_ganaderos", ["natural_total", "juridica"])
+    # El ajuste se hace sobre las 3 HOJAS reales (mujeres/hombres/juridica),
+    # no sobre "natural_total" directo - corregido 2026-10-16: una versión
+    # anterior ajustaba "natural_total" (columna intermedia, ya derivada de
+    # mujeres+hombres) para que natural_total+juridica sumara el total
+    # reutilizado, pero eso rompía la propia identidad natural_total=
+    # mujeres+hombres (el validador lo detectó: natural_total terminaba sin
+    # coincidir con mujeres+hombres en ~300 filas). Ajustando las 3 hojas
+    # directo y recalculando "natural_total" DESPUÉS como su suma fresca, se
+    # cumplen las 2 identidades a la vez (total_ganaderos=mujeres+hombres+
+    # juridica Y natural_total=mujeres+hombres) sin ningún trade-off.
+    agregador.forzar_suma_exacta(tabla, "total_ganaderos", ["mujeres", "hombres", "juridica"])
+    tabla["natural_total"] = tabla["mujeres"] + tabla["hombres"]
     return tabla, value_cols
 
 
@@ -252,6 +259,16 @@ def generar_cuadro6(ciclo: str = "C1") -> tuple[pd.DataFrame, list[str]]:
     # Sin `columnas_totales`: no son categorías mutuamente excluyentes (ver
     # docstring del módulo) - cada columna se redondea de forma independiente.
     tabla = agregador.generar_cuadro(agg, value_cols)
+    # "total_ganaderos" se reutiliza de Cuadro 1 (corregido 2026-10-16): el
+    # filtro WHERE de arriba (réplica del SAS) excluye predios sin
+    # `orientacionhato` reportada - en Ciclo 1 eso no afecta ninguna fila
+    # (verificado, ver docstring del módulo), pero en Ciclo 2 SÍ excluye un
+    # número real de ganaderos (~206 a nivel nacional, detectado por el
+    # usuario al comparar contra Cuadro 1/3/.../16). El filtro se mantiene
+    # para el desglose de delitos (fiel al SAS), pero la columna "Total de
+    # ganaderos" debe coincidir con el resto del libro, no con el universo
+    # filtrado de este cuadro en particular.
+    tabla["total_ganaderos"] = _total_ganaderos_cuadro1(ciclo)
     return tabla, value_cols
 
 
@@ -337,7 +354,22 @@ def generar_cuadro8(ciclo: str = "C1") -> tuple[pd.DataFrame, list[str]]:
     )
     tabla = agregador.generar_cuadro(agg, value_cols, columnas_totales=columnas_totales)
     tabla["total_ganaderos"] = _total_ganaderos_cuadro1(ciclo)
-    agregador.forzar_suma_exacta(tabla, "total_ganaderos", [f"{p}_total" for p, _ in _GENERO_PREFIJO])
+    # El ajuste se hace sobre las 18 HOJAS reales (género x tenencia), no
+    # sobre "h_total"/"m_total"/"j_total" directo - corregido 2026-10-16
+    # (mismo tipo de bug que Cuadro 3, ver esa función): ajustar los "_total"
+    # de género directo rompía su propia identidad (h_total = suma de sus 6
+    # tenencias) Y la del margen de tenencia general (propio = h_propio+
+    # m_propio+j_propio), detectado por el validador. Ajustando las 18
+    # hojas y recalculando AMBOS márgenes DESPUÉS como sumas frescas, las 3
+    # identidades (total_ganaderos, "_total" de género, tenencia general) se
+    # cumplen a la vez.
+    cols_todas = [f"{p}_{_TENENCIA_SLUG[t]}" for p, _ in _GENERO_PREFIJO for t in TENENCIA_ORDEN]
+    agregador.forzar_suma_exacta(tabla, "total_ganaderos", cols_todas)
+    for p, _ in _GENERO_PREFIJO:
+        tabla[f"{p}_total"] = tabla[[f"{p}_{_TENENCIA_SLUG[t]}" for t in TENENCIA_ORDEN]].sum(axis=1)
+    for tenencia in TENENCIA_ORDEN:
+        slug = _TENENCIA_SLUG[tenencia]
+        tabla[slug] = tabla[[f"{p}_{slug}" for p, _ in _GENERO_PREFIJO]].sum(axis=1)
     return tabla, value_cols
 
 
@@ -380,7 +412,12 @@ def _generar_cuadro_si_no_por_genero(columna_raw: str, ciclo: str = "C1") -> tup
     )
     tabla = agregador.generar_cuadro(agg, value_cols, columnas_totales=columnas_totales)
     tabla["total_ganaderos"] = _total_ganaderos_cuadro1(ciclo)
-    agregador.forzar_suma_exacta(tabla, "total_ganaderos", ["general_si", "general_no"])
+    # Ajuste sobre las 6 HOJAS reales (género x sí/no), no sobre "general_si"/
+    # "general_no" directo - mismo motivo que Cuadro 3/8 (corregido 2026-10-16).
+    cols_todas = [f"{p}_{s}" for p, _ in _GENERO_PREFIJO for s in ("si", "no")]
+    agregador.forzar_suma_exacta(tabla, "total_ganaderos", cols_todas)
+    tabla["general_si"] = tabla[[f"{p}_si" for p, _ in _GENERO_PREFIJO]].sum(axis=1)
+    tabla["general_no"] = tabla[[f"{p}_no" for p, _ in _GENERO_PREFIJO]].sum(axis=1)
     return tabla, value_cols
 
 
@@ -440,7 +477,16 @@ def generar_cuadro10(ciclo: str = "C1") -> tuple[pd.DataFrame, list[str]]:
     )
     tabla = agregador.generar_cuadro(agg, value_cols, columnas_totales=columnas_totales_10)
     tabla["total_ganaderos"] = _total_ganaderos_cuadro1(ciclo)
-    agregador.forzar_suma_exacta(tabla, "total_ganaderos", ["gen_predio", "gen_otro"])
+    # Ajuste sobre las 6 HOJAS reales (género x predio/otro), no sobre
+    # "gen_predio"/"gen_otro" ni "{p}_total" directo - mismo motivo que
+    # Cuadro 3/8/9 (corregido 2026-10-16): se recalculan AMBOS márgenes
+    # (por categoría y por género) frescos después del ajuste.
+    cols_todas = [f"{p}_{s}" for p, _ in _GENERO_PREFIJO for s in ("predio", "otro")]
+    agregador.forzar_suma_exacta(tabla, "total_ganaderos", cols_todas)
+    tabla["gen_predio"] = tabla[[f"{p}_predio" for p, _ in _GENERO_PREFIJO]].sum(axis=1)
+    tabla["gen_otro"] = tabla[[f"{p}_otro" for p, _ in _GENERO_PREFIJO]].sum(axis=1)
+    for p, _ in _GENERO_PREFIJO:
+        tabla[f"{p}_total"] = tabla[f"{p}_predio"] + tabla[f"{p}_otro"]
     return tabla, value_cols
 
 
@@ -602,9 +648,15 @@ def generar_cuadro7() -> tuple[pd.DataFrame, list[str]]:
     # "total_ganaderos" (columna E) se reutiliza de Cuadro 1 (corregido
     # 2026-10-02 - antes, 2026-09-25, se derivaba como suma de los 3 bloques
     # de género, lo que lo hacía coincidir INTERNAMENTE pero no con Cuadro 1,
-    # ver `_total_ganaderos_cuadro1`) - se ajusta DESPUÉS para que
-    # mujeres+hombres+jurídica sumen exacto ese total, logrando ambas cosas.
+    # ver `_total_ganaderos_cuadro1`).
     tabla = agregador.generar_cuadro(agg, value_cols, columnas_totales=columnas_totales)
     tabla["total_ganaderos"] = _total_ganaderos_cuadro1("C1")
-    agregador.forzar_suma_exacta(tabla, "total_ganaderos", [f"{p}_total" for p, _ in _GENERO_PREFIJO_CUADRO7])
+    # Ajuste sobre las 21 HOJAS reales (género x rango de edad), no sobre
+    # "{p}_total" directo - corregido 2026-10-16 (mismo motivo que Cuadro
+    # 3/8/9/10): se recalculan los 3 "_total" de género frescos después.
+    cols_todas = [f"{p}_{_RANGO_EDAD_SLUG[r]}" for p, _ in _GENERO_PREFIJO_CUADRO7 for r in RANGOS_EDAD_ORDEN]
+    agregador.forzar_suma_exacta(tabla, "total_ganaderos", cols_todas)
+    for p, _ in _GENERO_PREFIJO_CUADRO7:
+        cols_r = [f"{p}_{_RANGO_EDAD_SLUG[r]}" for r in RANGOS_EDAD_ORDEN]
+        tabla[f"{p}_total"] = tabla[cols_r].sum(axis=1)
     return tabla, value_cols
